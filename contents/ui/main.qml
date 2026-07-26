@@ -159,13 +159,16 @@ PlasmoidItem {
             priority: PlasmaCore.Action.HighPriority
             onTriggered: backend.refreshNow()
         },
+        // Подпись отличается осознанно: в контекстном меню виджета не видно,
+        // о какой папке речь, поэтому здесь она названа. Само действие то же,
+        // что у строк списков, и идёт через тот же backend.openLocal().
         PlasmaCore.Action {
             text: i18n("Open MEGA folder")
             icon.name: "folder-open"
             enabled: backend.mounts.length > 0
             onTriggered: {
                 if (backend.mounts.length > 0)
-                    backend.sh("xdg-open " + backend.quote(backend.mounts[0].localPath), function () {});
+                    backend.openLocal(backend.mounts[0].localPath);
             }
         }
     ]

@@ -68,9 +68,6 @@ msgstr "Приостановить"
 msgid "Resume"
 msgstr "Возобновить"
 
-msgid "Open local folder"
-msgstr "Открыть локальную папку"
-
 msgid "Mounted folders"
 msgstr "Подключённые папки"
 

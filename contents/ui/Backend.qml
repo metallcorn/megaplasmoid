@@ -332,6 +332,14 @@ Item {
 
     // ---- действия ----
 
+    // Открыть локальный путь в файловом менеджере. Единственная точка вызова
+    // xdg-open: подпись и значок для этого действия — в OpenFolderAction.qml.
+    function openLocal(path) {
+        if (!path)
+            return;
+        sh("xdg-open " + quote(path), function () {});
+    }
+
     function pauseSync(id) {
         sh("mega-exec sync --pause " + quote(id), function () {
             refreshSyncs();

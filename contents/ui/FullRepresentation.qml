@@ -224,11 +224,9 @@ PlasmaExtras.Representation {
                     }
 
                     contextualActions: [
-                        T.Action {
-                            icon.name: "folder-open"
-                            text: i18n("Open local folder")
-                            onTriggered: rep.backend.sh("xdg-open " + rep.backend.quote(modelData.localPath),
-                                                        function () {})
+                        OpenFolderAction {
+                            backend: rep.backend
+                            path: modelData.localPath
                         }
                     ]
                 }
@@ -275,12 +273,11 @@ PlasmaExtras.Representation {
                     }
 
                     contextualActions: [
-                        T.Action {
-                            icon.name: "folder-open"
-                            text: i18n("Open in file manager")
-                            enabled: modelData.enabled
-                            onTriggered: rep.backend.sh("xdg-open " + rep.backend.quote(modelData.localPath),
-                                                        function () {})
+                        OpenFolderAction {
+                            backend: rep.backend
+                            // Отключённый маунт открывать нечего: точка
+                            // монтирования пуста, пока он не поднят.
+                            path: modelData.enabled ? modelData.localPath : ""
                         }
                     ]
                 }
