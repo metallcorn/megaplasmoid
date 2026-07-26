@@ -158,8 +158,13 @@ domain is `plasma_applet_org.kde.plasma.megacmd`.
 
 ## Layout notes
 
-If you are here to copy patterns for your own widget, two of them cost real time
-to find:
+If you are writing a Plasma widget yourself, the metrics, component choices,
+layout traps, notification and translation rules collected while building this
+one are written up in **[docs/PLASMOID-UI-GUIDELINE.md](docs/PLASMOID-UI-GUIDELINE.md)**
+(in Russian). Every claim there is backed by either a plasma-workspace source
+file or a measurement.
+
+Two of them cost real time to find and are worth repeating here:
 
 - A widget for the system tray must **not** declare its own `header`. The tray
   draws the shared heading itself — back arrow, widget title, high-priority
