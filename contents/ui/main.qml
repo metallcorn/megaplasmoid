@@ -46,6 +46,27 @@ PlasmoidItem {
     })
     readonly property bool active: busy || syncing
 
+    /*
+     * Значок держится ещё несколько секунд после того, как активность
+     * закончилась. Без этого короткая синхронизация давала бы мигание: значок
+     * появился и сразу пропал, и заметить его не успеваешь. Заодно видно
+     * результат — «Синхронизировано» вместо мгновенного исчезновения.
+     */
+    readonly property bool activityVisible: active || linger.running
+
+    Timer {
+        id: linger
+        interval: Kirigami.Units.veryLongDuration * 14   // ≈8 с
+        repeat: false
+    }
+
+    onActiveChanged: {
+        if (active)
+            linger.stop();
+        else
+            linger.restart();
+    }
+
     readonly property bool needsAttention: backend.cmdMissing
         || backend.serverDown
         || !backend.loggedIn
@@ -68,7 +89,7 @@ PlasmoidItem {
                 : PlasmaCore.Types.ActiveStatus;
         if (needsAttention)
             return PlasmaCore.Types.NeedsAttentionStatus;
-        if (active || anySyncPaused)
+        if (activityVisible || anySyncPaused)
             return PlasmaCore.Types.ActiveStatus;
         return Plasmoid.configuration.hideWhenIdle
             ? PlasmaCore.Types.PassiveStatus
@@ -197,9 +218,54 @@ PlasmoidItem {
         onClicked: root.expanded = !wasExpanded
 
         Kirigami.Icon {
+            id: compactIcon
             anchors.fill: parent
             source: root.stateIcon
             active: compact.containsMouse
+        }
+
+        /*
+         * Пульсация во время активности — тот же приём, что у самого трея
+         * (applets/systemtray/qml/PulseAnimation.qml): короткий рост масштаба
+         * до 1.2 и обратно, затем длинная пауза. Пауза занимает 70 % цикла
+         * специально: непрерывное движение в панели раздражает, а редкий
+         * «вздох» замечаешь, не отвлекаясь.
+         *
+         * На паузе виджета не пульсируем: данные заведомо не обновляются,
+         * изображать активность нечестно.
+         */
+        SequentialAnimation {
+            id: pulse
+
+            readonly property int cycle: Kirigami.Units.veryLongDuration * 5
+
+            running: root.active && !backend.paused
+            loops: Animation.Infinite
+            alwaysRunToEnd: true
+
+            // Если анимацию всё же оборвали посередине, возвращаем масштаб:
+            // иначе значок остался бы увеличенным навсегда.
+            onRunningChanged: if (!running) compactIcon.scale = 1
+
+            ScaleAnimator {
+                target: compactIcon
+                from: 1
+                to: 1.2
+                duration: pulse.cycle * 0.15
+                easing.type: Easing.InQuad
+            }
+
+            ScaleAnimator {
+                target: compactIcon
+                from: 1.2
+                to: 1
+                duration: pulse.cycle * 0.15
+                easing.type: Easing.InQuad
+            }
+
+            PauseAnimation {
+                duration: pulse.cycle * 0.7
+            }
         }
 
         // Индикатор количества проблем — маленький бейдж поверх иконки.
