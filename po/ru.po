@@ -296,8 +296,11 @@ msgstr "Удалить это подключение"
 msgid "The operation failed"
 msgstr "Не удалось выполнить операцию"
 
-msgid "MEGAcmd is not installed."
-msgstr "MEGAcmd не установлен."
+msgid "mega-exec was not found in PATH."
+msgstr "Команда mega-exec не найдена в PATH."
+
+msgid "Check again"
+msgstr "Проверить снова"
 
 msgid "MEGAcmd server is not responding."
 msgstr "Сервер MEGAcmd не отвечает."

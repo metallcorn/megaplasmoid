@@ -59,6 +59,18 @@ Item {
                 disconnectSource(source);
                 return;
             }
+            /*
+             * Движок executable умеет прислать неполный кадр сразу при
+             * подключении — без поля "exit code". Такой кадр надо пропустить и
+             * дождаться настоящего результата, иначе вызывающий получит пустой
+             * вывод и код NaN, то есть ложный отрицательный ответ.
+             *
+             * Виджет это переживал за счёт следующего цикла опроса, а страница
+             * настроек работает с paused и запрос не повторяет — она оставалась
+             * с неверным вердиктом навсегда.
+             */
+            if (!data || data["exit code"] === undefined)
+                return;
             var cb = callbacks[source];
             delete callbacks[source];
             delete timeouts[source];
@@ -204,14 +216,33 @@ Item {
 
     // ---- опросы ----
 
+    /*
+     * Наличие MEGAcmd определяется по результату настоящей команды, а не
+     * отдельной проверкой `command -v`: шелл возвращает 127, когда команда не
+     * найдена, и это надёжнее — проверка и рабочий вызов не могут разойтись,
+     * потому что решает один и тот же результат.
+     *
+     * Текст ошибки сохраняется: без него на чужой машине непонятно, почему
+     * виджет считает MEGAcmd отсутствующим.
+     */
+    property string lastErrorText: ""
+
     function refreshQuota() {
         // df дешевле, чем whoami -l: не ходит за историей платежей и сессиями.
-        sh("mega-exec df", function (out, code) {
+        sh("mega-exec df", function (out, code, err) {
+            if (code === 127) {          // «command not found» от шелла
+                cmdMissing = true;
+                lastErrorText = String(err).trim();
+                return;
+            }
+            cmdMissing = false;
             if (code !== 0) {
                 serverDown = true;
+                lastErrorText = String(err).trim() || String(out).trim();
                 return;
             }
             serverDown = false;
+            lastErrorText = "";
             if (looksNotLoggedIn(out)) {
                 loggedIn = false;
                 return;

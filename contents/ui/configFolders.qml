@@ -79,11 +79,27 @@ Item {
             Layout.fillWidth: true
             visible: backend.cmdMissing || backend.serverDown || !backend.loggedIn
             type: Kirigami.MessageType.Warning
-            text: backend.cmdMissing
-                  ? i18n("MEGAcmd is not installed.")
-                  : (backend.serverDown
-                     ? i18n("MEGAcmd server is not responding.")
-                     : i18n("Not signed in. Run mega-cmd, then login, in a terminal."))
+            // Диагностику из шелла показываем прямо здесь: иначе на чужой
+            // машине не понять, почему mega-exec не найден или чем недоволен
+            // сервер.
+            text: {
+                var head = backend.cmdMissing
+                         ? i18n("mega-exec was not found in PATH.")
+                         : (backend.serverDown
+                            ? i18n("MEGAcmd server is not responding.")
+                            : i18n("Not signed in. Run mega-cmd, then login, in a terminal."));
+                return backend.lastErrorText.length > 0
+                     ? head + "\n" + backend.lastErrorText
+                     : head;
+            }
+
+            actions: [
+                Kirigami.Action {
+                    icon.name: "view-refresh"
+                    text: i18n("Check again")
+                    onTriggered: backend.refreshState()
+                }
+            ]
         }
 
         // ---- что уже настроено ----
