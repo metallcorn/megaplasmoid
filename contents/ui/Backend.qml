@@ -328,9 +328,111 @@ Item {
         sh("command -v mega-exec >/dev/null 2>&1 && echo yes || echo no", function (out) {
             cmdMissing = (String(out).trim() !== "yes");
         });
+        if (homeDir.length === 0)
+            sh('printf %s "$HOME"', function (out) {
+                homeDir = String(out).trim();
+            });
     }
 
     // ---- действия ----
+
+    /*
+     * ---- управление синхронизациями и маунтами ----
+     *
+     * Все четыре операции меняют состояние сервера MEGAcmd, поэтому сообщают
+     * результат сигналом: вызывающий показывает ошибку, а не молча делает вид,
+     * что получилось.
+     */
+    signal operationDone(bool ok, string message)
+
+    // Домашний каталог: нужен, чтобы раскрывать «~» в путях, введённых руками.
+    // Через шелл его раскрыть нельзя — quote() ставит одинарные кавычки, внутри
+    // которых $HOME остаётся текстом, и это правильно: иначе имя файла с $
+    // подставилось бы как переменная.
+    property string homeDir: ""
+
+    function expandTilde(p) {
+        var s = String(p);
+        if (homeDir.length > 0 && (s === "~" || s.indexOf("~/") === 0))
+            return homeDir + s.substring(1);
+        return s;
+    }
+
+    function addSync(localPath, remotePath) {
+        localPath = expandTilde(localPath);
+        sh("mega-exec sync " + quote(localPath) + " " + quote(remotePath) + " 2>&1",
+           function (out, code) {
+               var text = String(out).trim();
+               var ok = (code === 0 && text.indexOf("ERR") === -1);
+               operationDone(ok, ok ? "" : text);
+               refreshSyncs();
+           }, 60000);
+    }
+
+    function removeSync(id) {
+        sh("mega-exec sync --delete " + quote(id) + " 2>&1", function (out, code) {
+            var text = String(out).trim();
+            var ok = (code === 0 && text.indexOf("ERR") === -1);
+            operationDone(ok, ok ? "" : text);
+            refreshSyncs();
+        }, 60000);
+    }
+
+    /*
+     * По умолчанию маунт writable и persistent (переживает перезапуск) —
+     * так же, как у самой команды fuse-add.
+     */
+    function addMount(localPath, remotePath, name, readOnly) {
+        localPath = expandTilde(localPath);
+        var cmd = "mega-exec fuse-add";
+        if (name && name.length > 0)
+            cmd += " --name=" + quote(name);
+        if (readOnly)
+            cmd += " --read-only";
+        cmd += " " + quote(localPath) + " " + quote(remotePath) + " 2>&1";
+        sh(cmd, function (out, code) {
+            var text = String(out).trim();
+            var ok = (code === 0 && text.indexOf("ERR") === -1);
+            operationDone(ok, ok ? "" : text);
+            refreshMounts();
+        }, 60000);
+    }
+
+    function removeMount(nameOrPath) {
+        sh("mega-exec fuse-remove " + quote(nameOrPath) + " 2>&1", function (out, code) {
+            var text = String(out).trim();
+            var ok = (code === 0 && text.indexOf("ERR") === -1);
+            operationDone(ok, ok ? "" : text);
+            refreshMounts();
+        }, 60000);
+    }
+
+    /*
+     * Список подпапок удалённого пути — для выбора папки в облаке.
+     *
+     * `find --type=d` рекурсивен и на большом аккаунте (у автора 4313 папки)
+     * слишком дорог, поэтому обход идёт по одному уровню через `ls -l`. Тип
+     * узла — первый символ колонки FLAGS: d — папка. Разбор по образцу даты, а
+     * не по номерам полей: в именах бывают пробелы, а у подпути перед таблицей
+     * печатается лишняя строка с самим путём.
+     */
+    function listRemoteDirs(remotePath, cb) {
+        sh("mega-exec ls -l " + quote(remotePath) + " 2>&1", function (out, code) {
+            if (code !== 0) {
+                cb([]);
+                return;
+            }
+            var re = /^(\S+)\s+\S+\s+\S+\s+\d{1,2}\w{3}\d{4}\s+\d{2}:\d{2}:\d{2}\s+(.+)$/;
+            var dirs = [];
+            var lines = String(out).split("\n");
+            for (var i = 0; i < lines.length; ++i) {
+                var m = lines[i].replace(/\s+$/, "").match(re);
+                if (m && m[1].charAt(0) === "d")
+                    dirs.push(m[2]);
+            }
+            cb(dirs);
+        }, 60000);
+    }
 
     // Открыть локальный путь в файловом менеджере. Единственная точка вызова
     // xdg-open: подпись и значок для этого действия — в OpenFolderAction.qml.

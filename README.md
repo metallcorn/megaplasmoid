@@ -15,6 +15,10 @@ neither FUSE mounts nor the size of the cache they fill up. This widget does.
   dead server or a lost session.
 - **Synchronisations** — status per sync, pause/resume, open the local folder.
 - **FUSE mounts** — mount/unmount, open in the file manager.
+- **Set them up from the widget.** *Configure MEGA… → Folders* adds and removes
+  both synchronisations and mounts: pick the local folder with a file dialog,
+  browse the cloud tree to pick the remote one. No terminal needed for anything
+  except the initial login.
 - **Transfers** — direction, progress and state of every active transfer.
 - **FUSE cache** — current size plus a *Clear cache* button that stops the
   server, empties the cache and starts the server again. The button is disabled
@@ -86,7 +90,12 @@ that is the intended behaviour, not a broken install.
 
 *Right click on the widget → Configure MEGA…*
 
-| Setting | Default |
+The dialog has two pages. **General** holds the widget's own settings; **Folders**
+manages synchronisations and mounts. Note that the Folders page changes MEGAcmd
+server state, so its actions apply immediately rather than on *OK* — it has no
+`cfg_*` properties at all.
+
+| Setting (General) | Default |
 |---|---|
 | Hide the tray icon when everything is fine | on |
 | Low space warning threshold | 90 % |

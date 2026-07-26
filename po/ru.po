@@ -218,3 +218,107 @@ msgstr "Кэш FUSE: %1"
 
 msgid "Transfer in progress"
 msgstr "Идёт передача"
+
+# ---- страница настроек «Папки» ----
+
+msgid "Folders"
+msgstr "Папки"
+
+msgid "Synchronisations"
+msgstr "Синхронизации"
+
+msgid "Configured synchronisations:"
+msgstr "Настроенные синхронизации:"
+
+msgid "Configured mounts:"
+msgstr "Настроенные подключения:"
+
+msgid "Nothing is being synchronised yet."
+msgstr "Синхронизаций пока нет."
+
+msgid "No folders are mounted yet."
+msgstr "Подключённых папок пока нет."
+
+msgid "Add a synchronisation:"
+msgstr "Добавить синхронизацию:"
+
+msgid "Add a mount:"
+msgstr "Добавить подключение:"
+
+msgid "Add synchronisation"
+msgstr "Добавить синхронизацию"
+
+msgid "Add mount"
+msgstr "Добавить подключение"
+
+msgid "Local folder:"
+msgstr "Локальная папка:"
+
+msgid "Cloud folder:"
+msgstr "Папка в облаке:"
+
+msgid "Name:"
+msgstr "Название:"
+
+msgid "Browse…"
+msgstr "Выбрать…"
+
+msgid "Choose a local folder"
+msgstr "Выберите локальную папку"
+
+msgid "Read-only mount"
+msgstr "Только для чтения"
+
+msgid "optional, defaults to the folder name"
+msgstr "необязательно, по умолчанию — имя папки"
+
+msgid "e.g. ~/Documents/MEGA"
+msgstr "например ~/Documents/MEGA"
+
+msgid "e.g. ~/MEGA"
+msgstr "например ~/MEGA"
+
+msgid "A writable mount also lets you copy files into the cloud. Note that MEGA has no streaming: opening a file downloads it in full, and the local cache grows as you browse."
+msgstr "Подключение с записью позволяет и складывать файлы в облако. Учтите: стриминга у MEGA нет — открытие файла скачивает его целиком, а локальный кэш растёт по мере просмотра."
+
+msgid "Changes apply immediately, not on OK."
+msgstr "Изменения применяются сразу, а не по кнопке «ОК»."
+
+msgid "Remove"
+msgstr "Удалить"
+
+msgid "Stop synchronising (files are kept)"
+msgstr "Прекратить синхронизацию (файлы остаются)"
+
+msgid "Remove this mount"
+msgstr "Удалить это подключение"
+
+msgid "The operation failed"
+msgstr "Не удалось выполнить операцию"
+
+msgid "MEGAcmd is not installed."
+msgstr "MEGAcmd не установлен."
+
+msgid "MEGAcmd server is not responding."
+msgstr "Сервер MEGAcmd не отвечает."
+
+msgid "Not signed in. Run mega-cmd, then login, in a terminal."
+msgstr "Вход не выполнен. Запустите в терминале mega-cmd, затем login."
+
+msgid "mounted"
+msgstr "подключена"
+
+msgid "not mounted"
+msgstr "не подключена"
+
+msgid "transient"
+msgstr "до перезапуска"
+
+msgid "Go up"
+msgstr "На уровень выше"
+
+msgid "Double-click to open"
+msgstr "Двойной щелчок — открыть"
+
+msgid "No subfolders here"
+msgstr "Вложенных папок нет"
