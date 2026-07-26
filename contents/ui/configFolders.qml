@@ -30,14 +30,14 @@ Item {
     // отличаются составом полей.
     readonly property bool syncMode: modeGroup.currentIndex === 0
 
-    Component.onCompleted: {
-        backend.refreshSyncs();
-        backend.refreshMounts();
-    }
+    Component.onCompleted: backend.refreshState()
 
     Connections {
         target: backend
         function onOperationDone(ok, message) {
+            // Операция могла провалиться из-за отвалившейся сессии, поэтому
+            // перепроверяем и факт входа, а не только списки.
+            backend.refreshQuota();
             if (ok) {
                 error.visible = false;
                 localPath.text = "";
