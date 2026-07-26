@@ -1,0 +1,22 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "KPlugin": {
+        "Id": "org.kde.plasma.megacmd",
+        "Name": "MEGA",
+        "Name[ru]": "MEGA",
+        "Description": "Status of MEGA syncs, FUSE mounts and transfers via MEGAcmd",
+        "Description[ru]": "Состояние синхронизаций, FUSE-маунтов и передач MEGA через MEGAcmd",
+        "Icon": "folder-cloud",
+        "Category": "System Information",
+        "License": "GPL-3.0-or-later",
+        "Version": "0.7",
+        "Website": "https://github.com/metallcorn/megaplasmoid",
+        "BugReportUrl": "https://github.com/metallcorn/megaplasmoid/issues",
+        "Authors": [
+            {
+                "Name": "metallcorn"
+            }
+        ]
+    },
+    "X-Plasma-API-Minimum-Version": "6.0"
+}

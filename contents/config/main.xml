@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0
+                          http://www.kde.org/standards/kcfg/1.0/kcfg.xsd">
+
+  <kcfgfile name=""/>
+
+  <group name="General">
+
+    <entry name="hideWhenIdle" type="Bool">
+      <label>Hide the tray icon when everything is fine</label>
+      <default>true</default>
+    </entry>
+
+    <entry name="paused" type="Bool">
+      <label>Automatic updates paused</label>
+      <default>false</default>
+    </entry>
+
+    <entry name="lowSpacePercent" type="Int">
+      <label>Low space warning threshold, %</label>
+      <default>90</default>
+      <min>50</min>
+      <max>99</max>
+    </entry>
+
+    <entry name="cacheLimitMb" type="Int">
+      <label>FUSE cache size warning threshold, MiB</label>
+      <default>2048</default>
+      <min>128</min>
+      <max>102400</max>
+    </entry>
+
+    <entry name="pollExpandedSec" type="Int">
+      <label>Polling interval when the panel is open, s</label>
+      <default>2</default>
+      <min>1</min>
+      <max>60</max>
+    </entry>
+
+    <entry name="pollAcSec" type="Int">
+      <label>Polling interval on AC power, s</label>
+      <default>30</default>
+      <min>5</min>
+      <max>3600</max>
+    </entry>
+
+    <entry name="pollBatterySec" type="Int">
+      <label>Polling interval on battery, s</label>
+      <default>180</default>
+      <min>10</min>
+      <max>3600</max>
+    </entry>
+
+  </group>
+</kcfg>

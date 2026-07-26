@@ -1,0 +1,51 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: build and attach .plasmoid
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Версия в metadata.json должна совпадать с тегом: именно её видит
+      # Plasma в «Управлении виджетами», и расхождение потом не отследить.
+      - name: tag matches metadata version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          meta=$(python3 -c "import json;print(json.load(open('metadata.json'))['KPlugin']['Version'])")
+          echo "тег: $tag, metadata.json: $meta"
+          test "$tag" = "$meta" || {
+            echo "::error::версия в metadata.json ($meta) не совпадает с тегом ($tag)"
+            exit 1
+          }
+
+      - name: build package
+        run: |
+          python3 po/build-mo.py
+          zip -qr megaplasmoid.plasmoid metadata.json contents
+          unzip -l megaplasmoid.plasmoid
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: megaplasmoid
+          path: megaplasmoid.plasmoid
+
+      - name: attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            megaplasmoid.plasmoid \
+          || gh release upload "$GITHUB_REF_NAME" megaplasmoid.plasmoid --clobber

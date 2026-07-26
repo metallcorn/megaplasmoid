@@ -1,0 +1,14 @@
+# Собранный пакет
+*.plasmoid
+
+# Мусор редакторов и системы
+*~
+*.orig
+*.rej
+.DS_Store
+.idea/
+.vscode/
+__pycache__/
+
+# Временные стенды для проверки QML (см. README, раздел Layout notes)
+contents/ui/_*.qml

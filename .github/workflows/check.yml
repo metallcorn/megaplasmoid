@@ -1,0 +1,109 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  metadata:
+    name: metadata and settings
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: metadata.json is valid JSON
+        run: python3 -c "import json; json.load(open('metadata.json')); print('ok')"
+
+      - name: main.xml is valid XML
+        run: python3 -c "import xml.dom.minidom as m; m.parse('contents/config/main.xml'); print('ok')"
+
+      # Самая частая и самая незаметная поломка: имя ключа в main.xml не
+      # совпадает с алиасом cfg_* в форме настроек. Диалог при этом открывается,
+      # но значения молча не сохраняются.
+      - name: config keys match cfg_ aliases
+        run: |
+          python3 - <<'PY'
+          import re, sys
+          keys = set(re.findall(r'entry name="([^"]+)"', open('contents/config/main.xml').read()))
+          form = open('contents/ui/configGeneral.qml').read()
+          aliases = set(re.findall(r'property alias cfg_(\w+)', form))
+          # paused управляется кодом, а не формой настроек
+          keys.discard('paused')
+          missing = sorted(keys - aliases)
+          extra = sorted(aliases - keys)
+          if missing:
+              print('нет в форме настроек:', missing)
+          if extra:
+              print('нет в main.xml:', extra)
+          sys.exit(1 if missing or extra else 0)
+          PY
+
+  translations:
+    name: translations
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # build-mo.py печатает строки без перевода и строки, которых уже нет в QML
+      - name: catalogs are complete
+        run: |
+          python3 po/build-mo.py | tee /tmp/mo.log
+          if grep -q 'ВНИМАНИЕ' /tmp/mo.log; then
+            echo "::error::каталог перевода расходится с исходными строками"
+            exit 1
+          fi
+
+      # Скомпилированный .mo лежит в репозитории, чтобы установка «скопировал
+      # каталог — работает» не требовала ничего собирать. Значит он не должен
+      # отставать от .po.
+      - name: committed .mo files are up to date
+        run: |
+          if ! git diff --quiet -- contents/locale; then
+            echo "::error::contents/locale устарел, запустите make mo и закоммитьте результат"
+            git --no-pager diff --stat -- contents/locale
+            exit 1
+          fi
+          echo ok
+
+      - name: catalogs load with gettext
+        run: |
+          python3 - <<'PY'
+          import gettext, glob, sys
+          found = glob.glob('contents/locale/*/LC_MESSAGES/*.mo')
+          if not found:
+              sys.exit('нет ни одного .mo')
+          for p in found:
+              t = gettext.GNUTranslations(open(p, 'rb'))
+              probe = t.gettext('Everything is in sync')
+              print(p, '→', probe)
+              if probe == 'Everything is in sync':
+                  sys.exit('перевод не подхватился из ' + p)
+          PY
+
+  qml:
+    name: qmllint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install Qt QML tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qt6-declarative-dev-tools
+
+      # Модулей Plasma и Kirigami в раннере нет, поэтому проверяется только
+      # синтаксис: неизвестные импорты и типы из них игнорируются.
+      - name: syntax check
+        run: |
+          shopt -s nullglob
+          status=0
+          for f in contents/ui/*.qml contents/config/*.qml; do
+            out=$(qmllint6 "$f" 2>&1 || true)
+            if echo "$out" | grep -qE 'Syntax error|Expected token|Unexpected token'; then
+              echo "::error file=$f::$(echo "$out" | grep -m1 -E 'Syntax error|Expected token|Unexpected token')"
+              status=1
+            fi
+          done
+          exit $status

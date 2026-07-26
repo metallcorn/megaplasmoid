@@ -1,0 +1,55 @@
+[Global]
+Name=MEGA
+Name[ru]=MEGA
+Comment=MEGA sync and mount status
+Comment[ru]=Состояние синхронизаций и подключённых папок MEGA
+IconName=folder-cloud
+
+[Event/syncIssue]
+Name=Sync issue detected
+Name[ru]=Обнаружена проблема синхронизации
+Comment=MEGAcmd reported a conflict that requires attention
+Comment[ru]=MEGAcmd сообщил о конфликте, требующем вмешательства
+Action=Popup
+
+[Event/syncError]
+Name=Sync error
+Name[ru]=Ошибка синхронизации
+Comment=A synchronisation reported an error state
+Comment[ru]=Синхронизация перешла в состояние ошибки
+Action=Popup
+
+[Event/lowSpace]
+Name=Cloud storage almost full
+Name[ru]=Заканчивается место в облаке
+Comment=Used space exceeded the configured threshold
+Comment[ru]=Занятое место превысило заданный порог
+Action=Popup
+
+[Event/serverDown]
+Name=MEGAcmd server unavailable
+Name[ru]=Сервер MEGAcmd недоступен
+Comment=The widget cannot reach mega-cmd-server
+Comment[ru]=Виджет не может связаться с mega-cmd-server
+Action=Popup
+
+[Event/notLoggedIn]
+Name=Signed out of MEGA
+Name[ru]=Выполнен выход из MEGA
+Comment=The MEGAcmd session is no longer valid
+Comment[ru]=Сессия MEGAcmd больше недействительна
+Action=Popup
+
+[Event/cacheBloated]
+Name=FUSE cache grew large
+Name[ru]=Кэш FUSE разросся
+Comment=The local FUSE cache exceeded the configured size
+Comment[ru]=Локальный кэш FUSE превысил заданный размер
+Action=
+
+[Event/syncFinished]
+Name=Synchronisation finished
+Name[ru]=Синхронизация завершена
+Comment=All pending transfers have completed
+Comment[ru]=Все передачи завершены
+Action=

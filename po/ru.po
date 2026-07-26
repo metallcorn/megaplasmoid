@@ -1,0 +1,223 @@
+# Русский перевод плазмоида MEGA.
+# Домен: plasma_applet_org.kde.plasma.megacmd
+msgid ""
+msgstr ""
+"Project-Id-Version: plasma_applet_org.kde.plasma.megacmd\n"
+"Report-Msgid-Bugs-To: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: ru\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
+
+msgid "General"
+msgstr "Общие"
+
+msgid "Could not clear the cache"
+msgstr "Не удалось очистить кэш"
+
+msgid "MEGAcmd is not installed"
+msgstr "MEGAcmd не установлен"
+
+msgid "MEGAcmd server is not responding"
+msgstr "Сервер MEGAcmd не отвечает"
+
+msgid "Not signed in"
+msgstr "Не выполнен вход"
+
+msgid "Install the megacmd package to use this widget."
+msgstr "Установите пакет megacmd, чтобы виджет заработал."
+
+msgid "Start mega-cmd-server or check the megacmd service."
+msgstr "Запустите mega-cmd-server или проверьте службу megacmd."
+
+msgid "Sign in with mega-cmd → login. This widget never asks for or stores your password."
+msgstr "Выполните вход командой mega-cmd → login. Пароль виджет не запрашивает и не хранит."
+
+msgid "Automatic updates are off. Data refreshes only on request."
+msgstr "Автоматическое обновление выключено. Данные обновляются только по запросу."
+
+msgid "Account"
+msgstr "Аккаунт"
+
+msgid "Pro %1 · until %2"
+msgstr "Pro %1 · до %2"
+
+msgid "Pro %1"
+msgstr "Pro %1"
+
+msgid "Free plan"
+msgstr "Бесплатный тариф"
+
+msgid "Storage"
+msgstr "Хранилище"
+
+msgctxt "@info used of total storage"
+msgid "%1 of %2"
+msgstr "%1 из %2"
+
+msgid "Synchronisation"
+msgstr "Синхронизация"
+
+msgid "No synchronisations"
+msgstr "Синхронизаций нет"
+
+msgid "Pause"
+msgstr "Приостановить"
+
+msgid "Resume"
+msgstr "Возобновить"
+
+msgid "Open local folder"
+msgstr "Открыть локальную папку"
+
+msgid "Mounted folders"
+msgstr "Подключённые папки"
+
+msgid "Unmount"
+msgstr "Отключить"
+
+msgid "Mount"
+msgstr "Подключить"
+
+msgid "Open in file manager"
+msgstr "Открыть в файловом менеджере"
+
+msgid "Transfers"
+msgstr "Передачи"
+
+msgid "Clearing…"
+msgstr "Очистка…"
+
+msgid "Clear cache"
+msgstr "Очистить кэш"
+
+msgid "Tray icon:"
+msgstr "Значок в трее:"
+
+msgid "Hide when everything is fine"
+msgstr "Прятать, когда всё в порядке"
+
+msgid "The icon appears on its own while data is transferring, and is highlighted on sync errors, low space or an oversized cache."
+msgstr "Значок появится сам при передаче данных и будет подсвечен при ошибках синхронизации, нехватке места или разросшемся кэше."
+
+msgid "When to warn"
+msgstr "Когда предупреждать"
+
+msgid "Cloud storage used above, %:"
+msgstr "Облако заполнено больше, %:"
+
+msgid "FUSE cache larger than, MiB:"
+msgstr "Кэш FUSE больше, МиБ:"
+
+msgid "Polling interval"
+msgstr "Частота опроса"
+
+msgid "Panel open, s:"
+msgstr "Панель раскрыта, с:"
+
+msgid "Collapsed, on AC power, s:"
+msgstr "Свёрнута, питание от сети, с:"
+
+msgid "Collapsed, on battery, s:"
+msgstr "Свёрнута, питание от батареи, с:"
+
+msgid "The widget queries MEGAcmd on a timer only. The rarer the polling while collapsed, the less battery it uses."
+msgstr "Виджет обращается к MEGAcmd только по таймеру. Чем реже опрос при свёрнутой панели, тем меньше расход батареи."
+
+msgid "Updates paused"
+msgstr "Обновление приостановлено"
+
+msgid "%1 sync issue"
+msgid_plural "%1 sync issues"
+msgstr[0] "%1 проблема синхронизации"
+msgstr[1] "%1 проблемы синхронизации"
+msgstr[2] "%1 проблем синхронизации"
+
+msgid "Sync error"
+msgstr "Ошибка синхронизации"
+
+msgid "Cloud storage almost full"
+msgstr "Заканчивается место в облаке"
+
+msgid "FUSE cache grew large"
+msgstr "Кэш FUSE разросся"
+
+msgid "%1 transfer in progress"
+msgid_plural "%1 transfers in progress"
+msgstr[0] "%1 передача"
+msgstr[1] "%1 передачи"
+msgstr[2] "%1 передач"
+
+msgid "Synchronisation paused"
+msgstr "Синхронизация приостановлена"
+
+msgid "Everything is in sync"
+msgstr "Всё синхронизировано"
+
+msgid "MEGA"
+msgstr "MEGA"
+
+msgid "Resume updates"
+msgstr "Возобновить обновление"
+
+msgid "Pause updates"
+msgstr "Приостановить обновление"
+
+msgid "Refresh now"
+msgstr "Обновить сейчас"
+
+msgid "Open MEGA folder"
+msgstr "Открыть папку MEGA"
+
+msgid "MEGA: sync issue"
+msgstr "MEGA: проблема синхронизации"
+
+msgid "%1 issue detected, synchronisation is stalled"
+msgid_plural "%1 issues detected, synchronisation is stalled"
+msgstr[0] "Обнаружена %1 проблема, синхронизация приостановлена"
+msgstr[1] "Обнаружено %1 проблемы, синхронизация приостановлена"
+msgstr[2] "Обнаружено %1 проблем, синхронизация приостановлена"
+
+msgid "MEGA: sync error"
+msgstr "MEGA: ошибка синхронизации"
+
+msgid "One of the synchronisations reported an error"
+msgstr "Одна из синхронизаций сообщила об ошибке"
+
+msgid "MEGA: running out of space"
+msgstr "MEGA: заканчивается место"
+
+msgid "%1% of cloud storage is used"
+msgstr "Занято %1% облачного хранилища"
+
+msgid "MEGA: server unavailable"
+msgstr "MEGA: сервер недоступен"
+
+msgid "Cannot reach mega-cmd-server"
+msgstr "Не удаётся связаться с mega-cmd-server"
+
+msgid "MEGA: signed out"
+msgstr "MEGA: выполнен выход"
+
+msgid "The MEGAcmd session is no longer valid, syncing has stopped"
+msgstr "Сессия MEGAcmd недействительна, синхронизация остановлена"
+
+msgid "MEGA: FUSE cache grew large"
+msgstr "MEGA: кэш FUSE разросся"
+
+msgid "The cache takes up %1 and can be cleared from the widget"
+msgstr "Кэш занимает %1 — его можно очистить из панели виджета"
+
+msgid "MEGA: synchronisation finished"
+msgstr "MEGA: синхронизация завершена"
+
+msgid "All transfers have completed"
+msgstr "Все передачи завершены"
+
+msgctxt "@info size of the local FUSE cache"
+msgid "FUSE cache: %1"
+msgstr "Кэш FUSE: %1"
+
+msgid "Transfer in progress"
+msgstr "Идёт передача"
