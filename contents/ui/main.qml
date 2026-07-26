@@ -35,6 +35,16 @@ PlasmoidItem {
         return s.error !== "NO" && s.error !== "";
     })
     readonly property bool busy: backend.transfers.length > 0
+    /*
+     * Идущая синхронизация — событие не менее важное, чем передача файла, и
+     * значок обязан её показывать. Раньше активность определялась только по
+     * очереди передач, поэтому во время синка виджет выглядел спокойным.
+     */
+    readonly property bool syncing: backend.syncs.some(function (s) {
+        return s.runState === "Running" && s.status !== "Synced"
+               && s.status !== "NONE" && (s.error === "NO" || s.error === "");
+    })
+    readonly property bool active: busy || syncing
 
     readonly property bool needsAttention: backend.cmdMissing
         || backend.serverDown
@@ -58,7 +68,7 @@ PlasmoidItem {
                 : PlasmaCore.Types.ActiveStatus;
         if (needsAttention)
             return PlasmaCore.Types.NeedsAttentionStatus;
-        if (busy || anySyncPaused)
+        if (active || anySyncPaused)
             return PlasmaCore.Types.ActiveStatus;
         return Plasmoid.configuration.hideWhenIdle
             ? PlasmaCore.Types.PassiveStatus
@@ -72,7 +82,7 @@ PlasmoidItem {
             return "cloud-offline";
         if (needsAttention)
             return "dialog-warning";
-        if (busy)
+        if (active)
             return "cloud-upload";
         return "folder-cloud";
     }
@@ -96,6 +106,8 @@ PlasmoidItem {
             return i18n("FUSE cache grew large");
         if (busy)
             return i18np("%1 transfer in progress", "%1 transfers in progress", backend.transfers.length);
+        if (syncing)
+            return i18n("Synchronising…");
         if (anySyncPaused)
             return i18n("Synchronisation paused");
         return i18n("Everything is in sync");
@@ -288,7 +300,7 @@ PlasmoidItem {
                                    formatSize(backend.cacheBytes)));
 
             // Завершение: были передачи, теперь их нет и всё синхронизировано.
-            if (prev.wasBusy && !busy && !hasIssues && !anySyncError)
+            if (prev.wasBusy && !active && !hasIssues && !anySyncError)
                 notifier.send("syncFinished", i18n("MEGA: synchronisation finished"),
                               i18n("All transfers have completed"));
         }
@@ -299,7 +311,7 @@ PlasmoidItem {
         prev.cacheBloated = cacheBloated;
         prev.serverDown = backend.serverDown;
         prev.loggedOut = loggedOut;
-        prev.wasBusy = busy;
+        prev.wasBusy = active;
     }
 
     Component.onCompleted: {

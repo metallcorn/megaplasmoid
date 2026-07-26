@@ -24,16 +24,27 @@ ColumnLayout {
 
     function reload() {
         busy = true;
-        backend.listRemoteDirs(path, function (dirs) {
+        backend.listRemoteDirs(path);
+    }
+
+    // Результат приходит сигналом, а не колбэком: хранение функций в property var
+    // валило plasmashell, подробности в шапке Backend.qml.
+    Connections {
+        target: picker.backend
+
+        function onRemoteDirsReady(path, dirs) {
+            // Ответ мог прийти на прошлый путь, если пользователь успел перейти.
+            if (path !== picker.path)
+                return;
             model.clear();
             for (var i = 0; i < dirs.length; ++i) {
-                // Корзина и мусор в выборе не нужны.
+                // Корзина в выборе не нужна.
                 if (dirs[i] === ".Trash-1000")
                     continue;
                 model.append({ "name": dirs[i] });
             }
-            busy = false;
-        });
+            picker.busy = false;
+        }
     }
 
     function enter(name) {

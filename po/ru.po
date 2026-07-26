@@ -325,3 +325,6 @@ msgstr "Двойной щелчок — открыть"
 
 msgid "No subfolders here"
 msgstr "Вложенных папок нет"
+
+msgid "Synchronising…"
+msgstr "Синхронизация…"

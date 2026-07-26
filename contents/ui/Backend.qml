@@ -1,7 +1,27 @@
 /*
  * Единственная точка, которая знает про MEGAcmd и про запуск процессов.
- * Всё остальное в виджете работает только со свойствами этого объекта.
- * Если Plasma когда-нибудь выпилит Plasma5Support — переписывать надо только здесь.
+ * Всё остальное в виджете работает только со свойствами и сигналами этого
+ * объекта. Если Plasma когда-нибудь выпилит Plasma5Support — переписывать надо
+ * только здесь.
+ *
+ * ВАЖНО о том, почему результаты разбираются через теги, а не через колбэки.
+ *
+ * Первая версия хранила колбэк каждой команды в объекте внутри property var:
+ *
+ *     callbacks[cmd] = cb;        // добавление ключа
+ *     delete callbacks[cmd];      // удаление ключа
+ *
+ * Это валило plasmashell с SIGSEGV в QV4::Object::insertMember (три дампа с
+ * одинаковой подписью). Долгоживущий JS-объект внутри property var, у которого
+ * ключи постоянно появляются и исчезают, да ещё и хранящий функции, портит
+ * кучу JS-движка. Проявлялось «иногда»: при закрытии попапа и после разблокировки
+ * экрана, то есть когда состояние менялось одновременно с приходом результатов.
+ *
+ * Поэтому здесь:
+ *   - функции не хранятся вообще;
+ *   - долгоживущих объектов с динамическими ключами нет;
+ *   - в очереди лежат свежие объекты фиксированной формы {cmd, tag, timeout};
+ *   - результат разбирается по тегу в handleResult(), а наружу уходит сигналом.
  */
 import QtQuick
 import org.kde.plasma.plasma5support as P5Support
@@ -13,6 +33,7 @@ Item {
     property bool cmdMissing: false      // mega-exec не найден
     property bool serverDown: false      // бинарь есть, но сервер не отвечает
     property bool loggedIn: false
+    property string lastErrorText: ""    // диагностика от шелла или MEGAcmd
 
     property string accountEmail: ""
     property int proLevel: -1
@@ -30,8 +51,12 @@ Item {
     property real cacheBytes: -1  // -1 = ещё не считали
     property bool onBattery: false
     property bool busyClearing: false
+    property string homeDir: ""
+    property string runtimeFilesState: ""
 
     signal cacheCleared(bool ok, string message)
+    signal operationDone(bool ok, string message)
+    signal remoteDirsReady(string path, var dirs)
 
     // ---- запуск процессов ----
     /*
@@ -39,75 +64,86 @@ Item {
      * параллельно, и на каждый тик поднималось 5–8 процессов сразу — заметный
      * всплеск для ноутбука и лишние подключения к mega-cmd-server.
      *
-     * Побочная польза дедупликации: если очередь не поспевает за таймером,
-     * повторная постановка той же команды просто игнорируется, и очередь
-     * не растёт бесконечно.
+     * Дедупликация по тегу заодно работает тормозом: если очередь не поспевает
+     * за таймером, повторная постановка той же операции игнорируется.
      */
     P5Support.DataSource {
         id: exe
         engine: "executable"
         connectedSources: []
 
-        property var queue: []          // ожидающие команды, FIFO
-        property string active: ""      // выполняемая сейчас
-        property var callbacks: ({})    // cmd -> колбэк (есть и у активной, и у ждущих)
-        property var timeouts: ({})     // cmd -> сколько ждать, мс
+        // Очередь свежих объектов {cmd, tag, timeout} и текущая операция.
+        // Долгоживущих словарей здесь нет намеренно, см. шапку файла.
+        property var queue: []
+        property var current: null
+        property string stalled: ""     // тег последней команды, снятой по таймауту
 
         onNewData: function (source, data) {
-            if (source !== active) {
-                // Чужой источник (например остаток после срабатывания сторожа).
+            if (!current || source !== current.cmd) {
+                // Чужой источник, например остаток после срабатывания сторожа.
                 disconnectSource(source);
                 return;
             }
             /*
              * Движок executable умеет прислать неполный кадр сразу при
              * подключении — без поля "exit code". Такой кадр надо пропустить и
-             * дождаться настоящего результата, иначе вызывающий получит пустой
-             * вывод и код NaN, то есть ложный отрицательный ответ.
-             *
-             * Виджет это переживал за счёт следующего цикла опроса, а страница
-             * настроек работает с paused и запрос не повторяет — она оставалась
-             * с неверным вердиктом навсегда.
+             * дождаться настоящего результата, иначе получим пустой вывод и код
+             * NaN, то есть ложный отрицательный ответ. Виджет это переживал за
+             * счёт следующего цикла опроса, а страница настроек работает с
+             * paused и запрос не повторяет — она оставалась с неверным
+             * вердиктом навсегда.
              */
             if (!data || data["exit code"] === undefined)
                 return;
-            var cb = callbacks[source];
-            delete callbacks[source];
-            delete timeouts[source];
+
+            var tag = current.tag;
             watchdog.stop();
             disconnectSource(source);
-            active = "";
-            if (cb)
-                cb(String(data["stdout"] || ""), Number(data["exit code"]), String(data["stderr"] || ""));
+            current = null;
+
+            backend.handleResult(tag,
+                                 String(data["stdout"] || ""),
+                                 Number(data["exit code"]),
+                                 String(data["stderr"] || ""));
             pump();
         }
 
-        function run(cmd, cb, timeoutMs) {
-            // Уже выполняется или уже стоит в очереди — второй раз не ставим.
-            if (cmd === active || (cmd in callbacks))
+        function pending(tag) {
+            if (current && current.tag === tag)
+                return true;
+            for (var i = 0; i < queue.length; ++i)
+                if (queue[i].tag === tag)
+                    return true;
+            return false;
+        }
+
+        function run(cmd, tag, timeoutMs) {
+            if (pending(tag))
                 return;
-            callbacks[cmd] = cb;
-            timeouts[cmd] = timeoutMs > 0 ? timeoutMs : 15000;
-            queue.push(cmd);
+            var q = queue;
+            q.push({ "cmd": cmd, "tag": tag,
+                     "timeout": timeoutMs > 0 ? timeoutMs : 15000 });
+            queue = q;
             pump();
         }
 
         function pump() {
-            if (active !== "" || queue.length === 0)
+            if (current || queue.length === 0)
                 return;
-            active = queue.shift();
-            watchdog.interval = timeouts[active] || 15000;
+            var q = queue;
+            var next = q.shift();
+            queue = q;
+            current = next;
+            watchdog.interval = next.timeout;
             watchdog.restart();
-            connectSource(active);
+            connectSource(next.cmd);
         }
-
-        property string stalled: ""     // последняя команда, снятая по таймауту
     }
 
     /*
      * Сторож: при серийном исполнении одна зависшая команда заблокировала бы
-     * весь виджет. По истечении таймаута бросаем её и идём дальше — колбэк
-     * не вызывается, состояние просто не обновится до следующего цикла.
+     * весь виджет. По истечении таймаута бросаем её и идём дальше — результат
+     * не разбирается, состояние просто не обновится до следующего цикла.
      * Объявлен снаружи DataSource: у того нет default property, дочерние
      * элементы внутрь не принимаются.
      */
@@ -115,19 +151,17 @@ Item {
         id: watchdog
         repeat: false
         onTriggered: {
-            if (exe.active === "")
+            if (!exe.current)
                 return;
-            var stuck = exe.active;
-            delete exe.callbacks[stuck];
-            delete exe.timeouts[stuck];
-            exe.disconnectSource(stuck);
-            exe.active = "";
-            exe.stalled = stuck;
+            var stuck = exe.current;
+            exe.disconnectSource(stuck.cmd);
+            exe.current = null;
+            exe.stalled = stuck.tag;
             exe.pump();
         }
     }
 
-    // Диагностика: последняя команда, снятая по таймауту, и длина очереди.
+    // Диагностика.
     readonly property string stalled: exe.stalled
     readonly property int queueLength: exe.queue.length
 
@@ -143,13 +177,23 @@ Item {
 
     /*
      * Обёртка: всё, что содержит пайпы и globы, обязано идти через sh -c.
-     * ВАЖНО: команда для DataSource собирается через quote(), а не через
-     * JSON.stringify. Проверено экспериментально: при двойных кавычках вокруг
-     * скрипта аргументы теряются молча — команда выполняется, код возврата 0,
-     * а переменные внутри пустые.
+     * ВАЖНО: команда собирается через quote(), а не через JSON.stringify.
+     * Проверено экспериментально: при двойных кавычках вокруг скрипта аргументы
+     * теряются молча — команда выполняется, код возврата 0, переменные пустые.
      */
-    function sh(script, cb, timeoutMs) {
-        exe.run("sh -c " + quote(script), cb, timeoutMs);
+    function sh(script, tag, timeoutMs) {
+        exe.run("sh -c " + quote(script), tag, timeoutMs);
+    }
+
+    // Домашний каталог нужен, чтобы раскрывать «~» в путях, введённых руками.
+    // Через шелл его не раскрыть: quote() ставит одинарные кавычки, внутри
+    // которых $HOME остаётся текстом — и это правильно, иначе имя файла с $
+    // подставилось бы как переменная.
+    function expandTilde(p) {
+        var s = String(p);
+        if (homeDir.length > 0 && (s === "~" || s.indexOf("~/") === 0))
+            return homeDir + s.substring(1);
+        return s;
     }
 
     // ---- разбор вывода ----
@@ -214,28 +258,25 @@ Item {
         return String(text).indexOf("Not logged in") !== -1;
     }
 
-    // ---- опросы ----
+    function looksLikeError(text, code) {
+        return code !== 0 || String(text).indexOf("ERR") !== -1;
+    }
 
-    /*
-     * Наличие MEGAcmd определяется по результату настоящей команды, а не
-     * отдельной проверкой `command -v`: шелл возвращает 127, когда команда не
-     * найдена, и это надёжнее — проверка и рабочий вызов не могут разойтись,
-     * потому что решает один и тот же результат.
-     *
-     * Текст ошибки сохраняется: без него на чужой машине непонятно, почему
-     * виджет считает MEGAcmd отсутствующим.
-     */
-    property string lastErrorText: ""
+    // ---- разбор результатов по тегу ----
 
-    function refreshQuota() {
-        // df дешевле, чем whoami -l: не ходит за историей платежей и сессиями.
-        sh("mega-exec df", function (out, code, err) {
-            if (code === 127) {          // «command not found» от шелла
-                cmdMissing = true;
-                lastErrorText = String(err).trim();
-                return;
-            }
+    function handleResult(tag, out, code, err) {
+        // Отсутствие команды видно по коду 127 от шелла. Отдельная проверка
+        // `command -v` не нужна: проверка и рабочий вызов не могут разойтись,
+        // если решает один и тот же результат.
+        if (code === 127) {
+            cmdMissing = true;
+            lastErrorText = String(err).trim();
+            return;
+        }
+        if (tag.indexOf("mega") === 0 || tag === "quota")
             cmdMissing = false;
+
+        if (tag === "quota") {
             if (code !== 0) {
                 serverDown = true;
                 lastErrorText = String(err).trim() || String(out).trim();
@@ -248,17 +289,15 @@ Item {
                 return;
             }
             loggedIn = true;
-            var m = out.match(/USED STORAGE:\s+(\d+)\s+[\d.,]+%\s+of\s+(\d+)/);
-            if (m) {
-                usedBytes = parseFloat(m[1]);
-                totalBytes = parseFloat(m[2]);
+            var q = out.match(/USED STORAGE:\s+(\d+)\s+[\d.,]+%\s+of\s+(\d+)/);
+            if (q) {
+                usedBytes = parseFloat(q[1]);
+                totalBytes = parseFloat(q[2]);
             }
-        });
-    }
+            return;
+        }
 
-    function refreshAccount() {
-        // Самый дорогой вызов (сеть + сессии), поэтому дёргается редко.
-        sh("mega-exec whoami -l", function (out, code) {
+        if (tag === "account") {
             if (code !== 0)
                 return;
             var e = out.match(/Account e-mail:\s*(\S+)/);
@@ -268,12 +307,10 @@ Item {
             proLevel = p ? parseInt(p[1]) : -1;
             var d = out.match(/Pro expiration date:\s*(.+)/);
             proExpires = d ? d[1].trim() : "";
-        });
-    }
+            return;
+        }
 
-    function refreshSyncs() {
-        sh("mega-exec sync --col-separator='|' --path-display-size=4096 "
-           + "--output-cols=ID,LOCALPATH,REMOTEPATH,RUN_STATE,STATUS,ERROR", function (out, code) {
+        if (tag === "syncs") {
             if (code !== 0)
                 return;
             syncs = parseSeparated(out, "|").map(function (r) {
@@ -286,16 +323,14 @@ Item {
                     error: r["ERROR"] || "NO"
                 };
             });
-        });
-    }
+            return;
+        }
 
-    function refreshMounts() {
-        // fuse-show не понимает --col-separator (в его справке флаг указан, но
-        // на деле отвергается), поэтому режем по ширине колонок.
-        sh("mega-exec fuse-show --disable-path-collapse", function (out, code) {
+        if (tag === "mounts") {
             if (code !== 0)
                 return;
-            mounts = parseFixedWidth(out, ["NAME", "LOCAL_PATH", "REMOTE_PATH", "PERSISTENT", "ENABLED"]).map(function (r) {
+            mounts = parseFixedWidth(out, ["NAME", "LOCAL_PATH", "REMOTE_PATH",
+                                           "PERSISTENT", "ENABLED"]).map(function (r) {
                 return {
                     name: r["NAME"] || "",
                     localPath: r["LOCAL_PATH"] || "",
@@ -304,11 +339,10 @@ Item {
                     enabled: (r["ENABLED"] || "") === "YES"
                 };
             });
-        });
-    }
+            return;
+        }
 
-    function refreshTransfers() {
-        sh("mega-exec transfers --col-separator='|' --path-display-size=4096", function (out, code) {
+        if (tag === "transfers") {
             if (code !== 0)
                 return;
             transfers = parseSeparated(out, "|").map(function (r) {
@@ -321,138 +355,76 @@ Item {
                     state: r["STATE"] || ""
                 };
             });
-        });
-    }
+            return;
+        }
 
-    function refreshIssues() {
-        sh("mega-exec sync-issues --limit=0", function (out, code) {
+        if (tag === "issues") {
             if (code !== 0)
                 return;
             if (out.indexOf("no sync issues") !== -1) {
                 issueCount = 0;
                 return;
             }
-            issueCount = parseSeparated(out, "|").length
-                      || Math.max(0, String(out).split("\n").filter(function (l) {
+            var rows = parseSeparated(out, "|").length;
+            issueCount = rows > 0 ? rows
+                       : Math.max(0, String(out).split("\n").filter(function (l) {
                              return l.trim().length > 0;
                          }).length - 1);
-        });
-    }
+            return;
+        }
 
-    function refreshCache() {
-        // Обход каталога — не самая дешёвая операция, зовём редко.
-        sh("du -sb \"$HOME/.megaCmd/fuse-cache\" 2>/dev/null | cut -f1", function (out, code) {
+        if (tag === "cache") {
             var n = parseFloat(String(out).trim());
             cacheBytes = isNaN(n) ? -1 : n;
-        });
-    }
+            return;
+        }
 
-    function refreshPower() {
-        sh("cat /sys/class/power_supply/A*/online 2>/dev/null | head -1", function (out) {
+        if (tag === "power") {
             var v = String(out).trim();
             if (v.length > 0)
                 onBattery = (v === "0");
-        });
-    }
+            return;
+        }
 
-    function checkAvailable() {
-        sh("command -v mega-exec >/dev/null 2>&1 && echo yes || echo no", function (out) {
-            cmdMissing = (String(out).trim() !== "yes");
-        });
-        if (homeDir.length === 0)
-            sh('printf %s "$HOME"', function (out) {
-                homeDir = String(out).trim();
-            });
-    }
+        if (tag === "home") {
+            homeDir = String(out).trim();
+            return;
+        }
 
-    // ---- действия ----
+        if (tag === "runtime") {
+            runtimeFilesState = String(out).trim();
+            return;
+        }
 
-    /*
-     * ---- управление синхронизациями и маунтами ----
-     *
-     * Все четыре операции меняют состояние сервера MEGAcmd, поэтому сообщают
-     * результат сигналом: вызывающий показывает ошибку, а не молча делает вид,
-     * что получилось.
-     */
-    signal operationDone(bool ok, string message)
-
-    // Домашний каталог: нужен, чтобы раскрывать «~» в путях, введённых руками.
-    // Через шелл его раскрыть нельзя — quote() ставит одинарные кавычки, внутри
-    // которых $HOME остаётся текстом, и это правильно: иначе имя файла с $
-    // подставилось бы как переменная.
-    property string homeDir: ""
-
-    function expandTilde(p) {
-        var s = String(p);
-        if (homeDir.length > 0 && (s === "~" || s.indexOf("~/") === 0))
-            return homeDir + s.substring(1);
-        return s;
-    }
-
-    function addSync(localPath, remotePath) {
-        localPath = expandTilde(localPath);
-        sh("mega-exec sync " + quote(localPath) + " " + quote(remotePath) + " 2>&1",
-           function (out, code) {
-               var text = String(out).trim();
-               var ok = (code === 0 && text.indexOf("ERR") === -1);
-               operationDone(ok, ok ? "" : text);
-               refreshSyncs();
-           }, 60000);
-    }
-
-    function removeSync(id) {
-        sh("mega-exec sync --delete " + quote(id) + " 2>&1", function (out, code) {
-            var text = String(out).trim();
-            var ok = (code === 0 && text.indexOf("ERR") === -1);
-            operationDone(ok, ok ? "" : text);
+        if (tag === "clear") {
+            busyClearing = false;
+            var ok = (code === 0 && String(out).indexOf("OK") !== -1);
+            cacheCleared(ok, ok ? "" : (String(err).trim()
+                                        || i18n("Could not clear the cache")));
+            refreshCache();
+            refreshMounts();
             refreshSyncs();
-        }, 60000);
-    }
+            return;
+        }
 
-    /*
-     * По умолчанию маунт writable и persistent (переживает перезапуск) —
-     * так же, как у самой команды fuse-add.
-     */
-    function addMount(localPath, remotePath, name, readOnly) {
-        localPath = expandTilde(localPath);
-        var cmd = "mega-exec fuse-add";
-        if (name && name.length > 0)
-            cmd += " --name=" + quote(name);
-        if (readOnly)
-            cmd += " --read-only";
-        cmd += " " + quote(localPath) + " " + quote(remotePath) + " 2>&1";
-        sh(cmd, function (out, code) {
+        if (tag.indexOf("op:") === 0) {
             var text = String(out).trim();
-            var ok = (code === 0 && text.indexOf("ERR") === -1);
-            operationDone(ok, ok ? "" : text);
+            var good = !looksLikeError(text, code);
+            operationDone(good, good ? "" : text);
+            refreshSyncs();
             refreshMounts();
-        }, 60000);
-    }
+            return;
+        }
 
-    function removeMount(nameOrPath) {
-        sh("mega-exec fuse-remove " + quote(nameOrPath) + " 2>&1", function (out, code) {
-            var text = String(out).trim();
-            var ok = (code === 0 && text.indexOf("ERR") === -1);
-            operationDone(ok, ok ? "" : text);
-            refreshMounts();
-        }, 60000);
-    }
-
-    /*
-     * Список подпапок удалённого пути — для выбора папки в облаке.
-     *
-     * `find --type=d` рекурсивен и на большом аккаунте (у автора 4313 папки)
-     * слишком дорог, поэтому обход идёт по одному уровню через `ls -l`. Тип
-     * узла — первый символ колонки FLAGS: d — папка. Разбор по образцу даты, а
-     * не по номерам полей: в именах бывают пробелы, а у подпути перед таблицей
-     * печатается лишняя строка с самим путём.
-     */
-    function listRemoteDirs(remotePath, cb) {
-        sh("mega-exec ls -l " + quote(remotePath) + " 2>&1", function (out, code) {
+        if (tag.indexOf("ls:") === 0) {
+            var path = tag.substring(3);
             if (code !== 0) {
-                cb([]);
+                remoteDirsReady(path, []);
                 return;
             }
+            // Тип узла — первый символ колонки FLAGS: d означает папку.
+            // Разбор по образцу даты, а не по номерам полей: в именах бывают
+            // пробелы, а у подпути перед таблицей печатается лишняя строка.
             var re = /^(\S+)\s+\S+\s+\S+\s+\d{1,2}\w{3}\d{4}\s+\d{2}:\d{2}:\d{2}\s+(.+)$/;
             var dirs = [];
             var lines = String(out).split("\n");
@@ -461,8 +433,102 @@ Item {
                 if (m && m[1].charAt(0) === "d")
                     dirs.push(m[2]);
             }
-            cb(dirs);
-        }, 60000);
+            remoteDirsReady(path, dirs);
+            return;
+        }
+    }
+
+    // ---- опросы ----
+
+    // df дешевле, чем whoami -l: не ходит за историей платежей и сессиями.
+    function refreshQuota()     { sh("mega-exec df", "quota"); }
+    function refreshAccount()   { sh("mega-exec whoami -l", "account", 30000); }
+
+    function refreshSyncs() {
+        sh("mega-exec sync --col-separator='|' --path-display-size=4096 "
+           + "--output-cols=ID,LOCALPATH,REMOTEPATH,RUN_STATE,STATUS,ERROR", "syncs");
+    }
+
+    // fuse-show не понимает --col-separator (в его справке флаг указан, но на
+    // деле отвергается), поэтому режем по ширине колонок.
+    function refreshMounts() {
+        sh("mega-exec fuse-show --disable-path-collapse", "mounts");
+    }
+
+    function refreshTransfers() {
+        sh("mega-exec transfers --col-separator='|' --path-display-size=4096", "transfers");
+    }
+
+    function refreshIssues()    { sh("mega-exec sync-issues --limit=0", "issues"); }
+
+    // Обход каталога — не самая дешёвая операция, зовём редко.
+    function refreshCache() {
+        sh('du -sb "$HOME/.megaCmd/fuse-cache" 2>/dev/null | cut -f1', "cache", 60000);
+    }
+
+    function refreshPower() {
+        sh("cat /sys/class/power_supply/A*/online 2>/dev/null | head -1", "power");
+    }
+
+    function fetchHomeDir() {
+        if (homeDir.length === 0)
+            sh('printf %s "$HOME"', "home");
+    }
+
+    // ---- управление синхронизациями и маунтами ----
+
+    property int opSeq: 0
+
+    // Тег операции уникален: иначе дедупликация проглотила бы вторую операцию,
+    // отданную сразу после первой.
+    function nextOpTag() {
+        opSeq = opSeq + 1;
+        return "op:" + opSeq;
+    }
+
+    function addSync(localPath, remotePath) {
+        sh("mega-exec sync " + quote(expandTilde(localPath)) + " "
+           + quote(remotePath) + " 2>&1", nextOpTag(), 60000);
+    }
+
+    function removeSync(id) {
+        sh("mega-exec sync --delete " + quote(id) + " 2>&1", nextOpTag(), 60000);
+    }
+
+    // По умолчанию маунт writable и persistent (переживает перезапуск) — так же,
+    // как у самой команды fuse-add.
+    function addMount(localPath, remotePath, name, readOnly) {
+        var cmd = "mega-exec fuse-add";
+        if (name && name.length > 0)
+            cmd += " --name=" + quote(name);
+        if (readOnly)
+            cmd += " --read-only";
+        cmd += " " + quote(expandTilde(localPath)) + " " + quote(remotePath) + " 2>&1";
+        sh(cmd, nextOpTag(), 60000);
+    }
+
+    function removeMount(nameOrPath) {
+        sh("mega-exec fuse-remove " + quote(nameOrPath) + " 2>&1", nextOpTag(), 60000);
+    }
+
+    function setMountEnabled(name, on) {
+        sh("mega-exec " + (on ? "fuse-enable" : "fuse-disable") + " "
+           + quote(name) + " 2>&1", nextOpTag(), 60000);
+    }
+
+    function pauseSync(id)  { sh("mega-exec sync --pause " + quote(id) + " 2>&1", nextOpTag(), 60000); }
+    function resumeSync(id) { sh("mega-exec sync --enable " + quote(id) + " 2>&1", nextOpTag(), 60000); }
+
+    /*
+     * Список подпапок удалённого пути — для выбора папки в облаке. Результат
+     * приходит сигналом remoteDirsReady: колбэки здесь не хранятся принципиально,
+     * см. шапку файла.
+     *
+     * `find --type=d` рекурсивен и на большом аккаунте (у автора 4313 папки)
+     * слишком дорог, поэтому обход идёт по одному уровню через `ls -l`.
+     */
+    function listRemoteDirs(remotePath) {
+        sh("mega-exec ls -l " + quote(remotePath) + " 2>&1", "ls:" + remotePath, 60000);
     }
 
     // Открыть локальный путь в файловом менеджере. Единственная точка вызова
@@ -470,35 +536,16 @@ Item {
     function openLocal(path) {
         if (!path)
             return;
-        sh("xdg-open " + quote(path), function () {});
-    }
-
-    function pauseSync(id) {
-        sh("mega-exec sync --pause " + quote(id), function () {
-            refreshSyncs();
-        });
-    }
-
-    function resumeSync(id) {
-        sh("mega-exec sync --enable " + quote(id), function () {
-            refreshSyncs();
-        });
-    }
-
-    function setMountEnabled(name, on) {
-        var verb = on ? "fuse-enable" : "fuse-disable";
-        sh("mega-exec " + verb + " " + quote(name), function () {
-            refreshMounts();
-        });
+        sh("xdg-open " + quote(expandTilde(path)), "open:" + path, 30000);
     }
 
     /*
      * Очистка кэша. Опасная операция, поэтому обёрнута:
-     *  - вызывающий обязан убедиться, что очередь передач пуста
-     *    (иначе теряем отложенные выгрузки — запись через маунт асинхронная);
+     *  - вызывающий обязан убедиться, что очередь передач пуста (иначе теряем
+     *    отложенные выгрузки — запись через маунт асинхронная);
      *  - сервер гасится, кэш чистится, сервер поднимается обратно;
-     *  - ветка с systemd нужна на этой машине, ветка без него — для Steam Deck,
-     *    где юнита нет и сервер поднимается первым же вызовом mega-exec.
+     *  - ветка с systemd нужна на обычной системе, ветка без него — там, где
+     *    юнита нет и сервер поднимается первым же вызовом mega-exec.
      */
     function clearCache() {
         if (busyClearing)
@@ -518,66 +565,22 @@ Item {
           + '  mega-exec version >/dev/null 2>&1 || true; '
           + 'fi; '
           + 'echo OK';
-        sh(script, function (out, code, err) {
-            busyClearing = false;
-            var ok = (code === 0 && String(out).indexOf("OK") !== -1);
-            cacheCleared(ok, ok ? "" : (String(err).trim() || i18n("Could not clear the cache")));
-            refreshCache();
-            refreshMounts();
-            refreshSyncs();
         // Останов и запуск сервера плюс удаление кэша не укладываются в обычный
         // таймаут, поэтому даём этой команде отдельный запас.
-        }, 180000);
-    }
-
-    // ---- цикл опроса ----
-    // Ключ к экономии батареи: когда панель свёрнута и ничего не происходит,
-    // опрос идёт раз в несколько минут, а тяжёлые вызовы пропускаются вовсе.
-
-    property int cycle: 0
-    property bool expanded: false
-    property bool paused: false        // пауза: ни одного вызова без явной команды
-    property int expandedInterval: 2000
-    property int acInterval: 30000
-    property int batteryInterval: 180000
-
-    property date lastUpdate: new Date(0)
-
-    readonly property int currentInterval: expanded
-        ? expandedInterval
-        : (transfers.length > 0 ? 5000 : (onBattery ? batteryInterval : acInterval))
-
-    function refreshLight() {
-        refreshQuota();
-        refreshSyncs();
-        refreshTransfers();
-        refreshIssues();
-        lastUpdate = new Date();
-    }
-
-    function refreshHeavy() {
-        refreshAccount();
-        refreshMounts();
-        refreshCache();
-        refreshPower();
+        sh(script, "clear", 180000);
     }
 
     /*
      * Два файла обязаны лежать вне пакета, потому что их ищут по стандартным
      * путям XDG, а пакет плазмоида ставит файлы только внутрь себя:
      *
-     *   ~/.local/share/knotifications6/  — описание типов уведомлений,
-     *       без него KNotification молчит, а в Параметрах системы не появляется
-     *       раздел для их настройки;
-     *   ~/.local/share/locale/<язык>/LC_MESSAGES/  — каталог переводов,
-     *       домен plasma_applet_<id> формирует Plasma::Applet::translationDomain().
+     *   ~/.local/share/knotifications6/  — описание типов уведомлений, без него
+     *       KNotification молчит, а в Параметрах системы не появляется раздел;
+     *   ~/.local/share/locale/<язык>/LC_MESSAGES/  — каталог переводов.
      *
      * Поэтому оба едут внутри пакета и копируются на место при запуске: на новой
-     * машине (например на Steam Deck, куда пакет просто скопировали) всё
-     * заработает само, без установочных скриптов и без gettext.
+     * машине всё заработает само, без установочных скриптов и без gettext.
      */
-    property string runtimeFilesState: ""
-
     function installRuntimeFiles(notifyrcUrl, moUrl) {
         var notifyrc = urlToPath(notifyrcUrl);
         var mo = urlToPath(moUrl);
@@ -593,9 +596,7 @@ Item {
           + '  { cmp -s "$M" "$L/plasma_applet_org.kde.plasma.megacmd.mo" || cp "$M" "$L/"; } '
           + '  && r="$r locale:ok"; else r="$r locale:nosrc"; fi; '
           + 'echo "$r"';
-        sh(script, function (out) {
-            runtimeFilesState = String(out).trim();
-        });
+        sh(script, "runtime", 30000);
     }
 
     // file:///путь → /путь, с раскодированием %XX.
@@ -603,26 +604,47 @@ Item {
         return decodeURIComponent(String(url).replace(/^file:\/\//, ""));
     }
 
-    /*
-     * Состояние для страницы настроек: доступность сервера, факт входа и списки.
-     *
-     * refreshQuota() здесь обязателен: только он выставляет loggedIn. Без него
-     * страница с paused-бэкендом навсегда считала, что вход не выполнен, и
-     * блокировала добавление.
-     */
+    // ---- цикл опроса ----
+    // Ключ к экономии батареи: когда панель свёрнута и ничего не происходит,
+    // опрос идёт раз в несколько минут, а тяжёлые вызовы пропускаются вовсе.
+
+    property int cycle: 0
+    property bool expanded: false
+    property bool paused: false        // пауза: ни одного вызова без явной команды
+    property int expandedInterval: 2000
+    property int acInterval: 30000
+    property int batteryInterval: 180000
+
+    readonly property int currentInterval: expanded
+        ? expandedInterval
+        : (transfers.length > 0 ? 5000 : (onBattery ? batteryInterval : acInterval))
+
+    function refreshLight() {
+        refreshQuota();
+        refreshSyncs();
+        refreshTransfers();
+        refreshIssues();
+    }
+
+    function refreshHeavy() {
+        refreshAccount();
+        refreshMounts();
+        refreshCache();
+        refreshPower();
+    }
+
+    // Состояние для страницы настроек: доступность сервера, факт входа и списки.
+    // refreshQuota() здесь обязателен: только он выставляет loggedIn. Без него
+    // страница с paused-бэкендом навсегда считала, что вход не выполнен.
     function refreshState() {
         refreshQuota();
         refreshSyncs();
         refreshMounts();
     }
 
-    // Ручное обновление: работает и на паузе — это единственный способ
-    // получить данные, когда автоопрос выключен.
+    // Ручное обновление: работает и на паузе — это единственный способ получить
+    // данные, когда автоопрос выключен.
     function refreshNow() {
-        if (cmdMissing) {
-            checkAvailable();
-            return;
-        }
         refreshLight();
         refreshHeavy();
     }
@@ -636,20 +658,16 @@ Item {
         running: !backend.paused
         triggeredOnStart: true
         onTriggered: {
-            if (backend.cmdMissing) {
-                backend.checkAvailable();
-                return;
-            }
             backend.refreshLight();
             // Тяжёлое — при раскрытии сразу, иначе примерно раз в 10 циклов.
             if (backend.expanded || backend.cycle % 10 === 0)
                 backend.refreshHeavy();
-            backend.cycle++;
+            backend.cycle = backend.cycle + 1;
         }
     }
 
     Component.onCompleted: {
-        checkAvailable();
+        fetchHomeDir();
         if (!paused) {
             refreshPower();
             refreshHeavy();
