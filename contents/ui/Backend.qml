@@ -54,6 +54,18 @@ Item {
     property string homeDir: ""
     property string runtimeFilesState: ""
 
+    /*
+     * Каталог с mega-exec, если его нет в PATH оболочки.
+     *
+     * plasmashell не читает ~/.bashrc, поэтому PATH у него беднее, чем в
+     * терминале. Если MEGAcmd поставлен без root (типичный случай на Steam
+     * Deck, где корень только для чтения), команда работает в терминале и не
+     * находится из виджета. Ниже к PATH добавляются обычные места установки,
+     * а это свойство позволяет указать своё.
+     */
+    property string extraPath: ""
+    property string shellPath: ""      // фактический PATH, для диагностики
+
     signal cacheCleared(bool ok, string message)
     signal operationDone(bool ok, string message)
     signal remoteDirsReady(string path, var dirs)
@@ -181,8 +193,23 @@ Item {
      * Проверено экспериментально: при двойных кавычках вокруг скрипта аргументы
      * теряются молча — команда выполняется, код возврата 0, переменные пустые.
      */
+    /*
+     * К PATH добавляются каталоги, куда MEGAcmd попадает при установке без
+     * root. Порядок важен: сначала указанный пользователем, потом обычные
+     * места, и только затем системный PATH — свежая ручная установка должна
+     * побеждать старую пакетную.
+     */
+    function pathPrefix() {
+        var dirs = [];
+        if (extraPath.length > 0)
+            dirs.push(expandTilde(extraPath));
+        dirs.push("$HOME/.local/bin", "$HOME/bin", "$HOME/megacmd",
+                  "$HOME/Applications/megacmd", "/usr/local/bin");
+        return 'PATH="' + dirs.join(":") + ':$PATH"; ';
+    }
+
     function sh(script, tag, timeoutMs) {
-        exe.run("sh -c " + quote(script), tag, timeoutMs);
+        exe.run("sh -c " + quote(pathPrefix() + script), tag, timeoutMs);
     }
 
     // Домашний каталог нужен, чтобы раскрывать «~» в путях, введённых руками.
@@ -386,6 +413,11 @@ Item {
             return;
         }
 
+        if (tag === "path") {
+            shellPath = String(out).trim();
+            return;
+        }
+
         if (tag === "home") {
             homeDir = String(out).trim();
             return;
@@ -473,6 +505,7 @@ Item {
     function fetchHomeDir() {
         if (homeDir.length === 0)
             sh('printf %s "$HOME"', "home");
+        sh('printf %s "$PATH"', "path");
     }
 
     // ---- управление синхронизациями и маунтами ----

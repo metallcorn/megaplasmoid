@@ -24,6 +24,7 @@ Item {
     Backend {
         id: backend
         paused: true
+        extraPath: plasmoid ? plasmoid.configuration.megacmdPath : ""
     }
 
     // Что настраиваем: синхронизацию или маунт. Формы почти совпадают,
@@ -88,9 +89,11 @@ Item {
                          : (backend.serverDown
                             ? i18n("MEGAcmd server is not responding.")
                             : i18n("Not signed in. Run mega-cmd, then login, in a terminal."));
-                return backend.lastErrorText.length > 0
-                     ? head + "\n" + backend.lastErrorText
-                     : head;
+                var tail = backend.lastErrorText;
+                if (backend.cmdMissing && backend.shellPath.length > 0)
+                    tail = (tail.length > 0 ? tail + "\n" : "")
+                         + i18n("PATH: %1", backend.shellPath);
+                return tail.length > 0 ? head + "\n" + tail : head;
             }
 
             actions: [

@@ -328,3 +328,18 @@ msgstr "Вложенных папок нет"
 
 msgid "Synchronising…"
 msgstr "Синхронизация…"
+
+msgid "MEGAcmd location"
+msgstr "Расположение MEGAcmd"
+
+msgid "Directory with mega-exec:"
+msgstr "Каталог с mega-exec:"
+
+msgid "leave empty if it is in PATH"
+msgstr "пусто, если он есть в PATH"
+
+msgid "Plasma does not read ~/.bashrc, so its PATH is shorter than the one in a terminal. If MEGAcmd was installed without root — the usual case on Steam Deck — name its directory here. Run \"which mega-exec\" in a terminal to find it."
+msgstr "Plasma не читает ~/.bashrc, поэтому её PATH короче, чем в терминале. Если MEGAcmd установлен без root — обычное дело на Steam Deck — укажите здесь его каталог. Узнать путь: выполните в терминале «which mega-exec»."
+
+msgid "PATH: %1"
+msgstr "PATH: %1"

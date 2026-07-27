@@ -18,6 +18,11 @@
       <default>false</default>
     </entry>
 
+    <entry name="megacmdPath" type="String">
+      <label>Directory containing mega-exec, if it is not in PATH</label>
+      <default></default>
+    </entry>
+
     <entry name="lowSpacePercent" type="Int">
       <label>Low space warning threshold, %</label>
       <default>90</default>

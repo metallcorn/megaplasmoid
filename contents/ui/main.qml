@@ -12,6 +12,7 @@ PlasmoidItem {
         id: backend
         expanded: root.expanded
         paused: Plasmoid.configuration.paused
+        extraPath: Plasmoid.configuration.megacmdPath
         expandedInterval: Plasmoid.configuration.pollExpandedSec * 1000
         acInterval: Plasmoid.configuration.pollAcSec * 1000
         batteryInterval: Plasmoid.configuration.pollBatterySec * 1000

@@ -10,6 +10,7 @@ Kirigami.FormLayout {
     id: page
 
     property alias cfg_hideWhenIdle: hideWhenIdle.checked
+    property alias cfg_megacmdPath: megacmdPath.text
     property alias cfg_lowSpacePercent: lowSpace.value
     property alias cfg_cacheLimitMb: cacheLimit.value
     property alias cfg_pollExpandedSec: pollExpanded.value
@@ -28,6 +29,28 @@ Kirigami.FormLayout {
         Layout.fillWidth: true
         Layout.maximumWidth: Kirigami.Units.gridUnit * 18
         text: i18n("The icon appears on its own while data is transferring, and is highlighted on sync errors, low space or an oversized cache.")
+        wrapMode: Text.WordWrap
+        font: Kirigami.Theme.smallFont
+        opacity: 0.7
+    }
+
+    // ---- расположение MEGAcmd ----
+
+    Item {
+        Kirigami.FormData.isSection: true
+        Kirigami.FormData.label: i18n("MEGAcmd location")
+    }
+
+    QQC2.TextField {
+        id: megacmdPath
+        Kirigami.FormData.label: i18n("Directory with mega-exec:")
+        placeholderText: i18n("leave empty if it is in PATH")
+    }
+
+    QQC2.Label {
+        Layout.fillWidth: true
+        Layout.maximumWidth: Kirigami.Units.gridUnit * 18
+        text: i18n("Plasma does not read ~/.bashrc, so its PATH is shorter than the one in a terminal. If MEGAcmd was installed without root — the usual case on Steam Deck — name its directory here. Run \"which mega-exec\" in a terminal to find it.")
         wrapMode: Text.WordWrap
         font: Kirigami.Theme.smallFont
         opacity: 0.7
