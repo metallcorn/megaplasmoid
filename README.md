@@ -2,39 +2,72 @@
 
 A Plasma 6 widget that shows the state of your [MEGA](https://mega.nz) account on
 top of [MEGAcmd](https://github.com/meganz/MEGAcmd): synchronisations, FUSE
-mounts, running transfers, storage quota and the local FUSE cache.
+mounts, running transfers, public links, storage quota and the local FUSE cache.
 
-There is no official MEGA widget for Plasma, and the official MEGAsync GUI shows
-neither FUSE mounts nor the size of the cache they fill up. This widget does.
+There is no official MEGA widget for Plasma. The official MEGAsync GUI shows
+neither FUSE mounts nor the size of the cache they fill up, and it gives you no
+list of the links you have shared over the years. This widget does all three.
 
-## Features
+## What it does
+
+The popup has two tabs, in the shape the system volume applet uses.
+
+### Status
+
+- **Synchronisations** — state of each one, pause and resume, open the local
+  folder. A row is only busy when the sync is actually running: MEGAcmd leaves
+  the old `STATUS` on a stopped sync, so the widget judges by `RUN_STATE`.
+- **FUSE mounts** — mount, unmount, open in the file manager.
+- **Transfers** — direction, progress and state of every active transfer,
+  including the ones a synchronisation starts (which `transfers` hides unless
+  asked). While data moves, a progress ring sits on the tray icon.
+- **Storage quota** and the **FUSE cache** size, with a *Clear cache* button
+  that stops the server, empties the cache and starts it again. It is disabled
+  while transfers are queued: writes through a mount are deferred, and clearing
+  the cache would drop data that has not reached the cloud yet.
+
+### Shared
+
+Every public link of the account: file name, the link itself, one click to open
+it in the browser, one button to stop sharing. Handy for the links you made from
+a phone years ago and forgot — they are permanent, and anyone who still has one
+can download the file without a MEGA account.
+
+Listing them walks the whole account, so it runs when you open the tab rather
+than on every poll.
+
+### Set everything up without a terminal
+
+*Configure MEGA… → Folders* adds and removes synchronisations and mounts: pick
+the local folder with a file dialog, browse the cloud tree for the remote one.
+Nothing reaches the server until you press *Apply* or *OK* — pending additions
+and removals are listed in place, and leaving the page asks what to do with them.
+
+**Exclusion rules come with profiles**: *MEGA defaults*, *Development*,
+*Documents*, *Photos and video*, *No rules*, plus your own saved under a name.
+Rules are shown in words — "Exclude directories named venv anywhere in the
+folder" — not as `-dn:venv`, and a *Check* button reports what a filter would
+match before you apply it.
+
+The profile is written before the folder is created, so the synchronisation is
+born with the right rules and nothing unwanted goes up in the meantime. This
+matters more than it sounds: adding a rule later does not remove what already
+reached the cloud, and taking a rule off makes the local and cloud copies
+collide — a conflict MEGAcmd cannot resolve from the CLI.
+
+`Development` keeps `.git`, `.env` and `.claude` synchronised, unlike MEGA's own
+defaults, which exclude everything starting with a dot. For a folder full of code
+that silently drops your repository history and your keys.
+
+### Elsewhere
 
 - **Hides itself when there is nothing to say.** The tray icon is `Passive` while
-  everything is in sync, becomes `Active` during transfers and
-  `NeedsAttention` on sync issues, low cloud space, an oversized FUSE cache, a
-  dead server or a lost session.
-- **Synchronisations** — status per sync, pause/resume, open the local folder.
-- **FUSE mounts** — mount/unmount, open in the file manager.
-- **Set them up from the widget.** *Configure MEGA… → Folders* adds and removes
-  both synchronisations and mounts: pick the local folder with a file dialog,
-  browse the cloud tree to pick the remote one. No terminal needed for anything
-  except the initial login.
-- **Transfers** — direction, progress and state of every active transfer, plus a
-  progress ring around the tray icon while data is moving.
-- **Shared links** — a *Shared* tab lists every public link of the account: file
-  name, the link itself, click to open it in the browser, one button to stop
-  sharing.
-- **Exclusion rules with profiles.** *Development*, *Documents*, *Photos and
-  video*, *MEGA defaults*, *No rules* — or your own, saved under a name. The
-  profile is applied before the synchronisation is created, so nothing unwanted
-  reaches the cloud in the meantime.
-- **FUSE cache** — current size plus a *Clear cache* button that stops the
-  server, empties the cache and starts the server again. The button is disabled
-  while transfers are queued, because writes through a mount are deferred and
-  clearing the cache would drop data that has not reached the cloud yet.
-- **Notifications** — seven event types, each one switchable individually in
+  everything is in sync, `Active` during transfers, and `NeedsAttention` on sync
+  issues, low cloud space, an oversized FUSE cache, a dead server or a lost
+  session.
+- **Notifications** — seven event types, each switchable individually in
   *System Settings → Notifications → Applications → MEGA*.
-- **Battery friendly** — see [Polling](#polling).
+- **Battery friendly** — with measurements, see [Polling](#polling).
 
 ## Requirements
 
@@ -172,6 +205,16 @@ domain is `plasma_applet_org.kde.plasma.megacmd`.
 - **No history.** MEGAcmd reports a snapshot; there is no log of past
   synchronisations to build a "recent files" list from.
 - **No log-in from the UI**, by design — see [Requirements](#requirements).
+- **Exclusion rules are easy to add and hard to undo.** Adding one leaves what
+  already reached the cloud in place, frozen; taking one off makes the local and
+  cloud copies collide, and MEGAcmd offers no way to resolve such a conflict from
+  the CLI. That is why the widget lets you set the rules before a folder is
+  created, and warns when you remove one.
+- **Rules do not travel with the folder.** MEGA never uploads `.megaignore`, so
+  on a second machine they come from that machine's profile — or from the copy
+  you keep in git.
+- **Revoking a public link is permanent.** A new link for the same file gets a
+  different key; the old one cannot be brought back.
 - **MEGA's FUSE support is in beta.** There is no streaming, so opening a file
   downloads it in full first, and the cache in `~/.megaCmd/fuse-cache` grows as
   you browse. Restarting the server does *not* empty it, despite what MEGA's own
@@ -189,18 +232,33 @@ one are written up in **[docs/PLASMOID-UI-GUIDELINE.md](docs/PLASMOID-UI-GUIDELI
 (in Russian). Every claim there is backed by either a plasma-workspace source
 file or a measurement.
 
-Two of them cost real time to find and are worth repeating here:
+Four of them cost real time to find and are worth repeating here:
 
-- A widget for the system tray must **not** declare its own `header`. The tray
-  draws the shared heading itself — back arrow, widget title, high-priority
-  action buttons, the hamburger menu, the configure gear and the pin — and an
-  applet's own header is appended as a *second* row below it. Action buttons
-  belong in `Plasmoid.contextualActions` with
-  `priority: PlasmaCore.Action.HighPriority`.
+- **Without `X-Plasma-NotificationAreaCategory` in `metadata.json` the applet
+  never appears in the tray's entry list**, so it cannot be given tray
+  visibility. `plasmoidregistry.cpp` skips any applet whose category is empty.
+  Nothing is logged: the widget installs, works in a panel, and simply is not
+  offered to the tray.
+- A tray widget must **not** declare its own `header` *for a heading* — the tray
+  draws that itself (back arrow, title, high-priority action buttons, hamburger
+  menu, configure gear, pin) and appends the applet's header as a *second* row
+  below it. Action buttons belong in `Plasmoid.contextualActions` with
+  `priority: PlasmaCore.Action.HighPriority`. A **tab bar**, on the other hand,
+  is exactly what that second row is for, and the volume applet puts one there.
+- **In Breeze the sizes of one icon are separate files with different
+  colouring.** `places/22/folder-cloud.svg` is `ColorScheme-Text`;
+  `places/32/folder-cloud.svg` is `ColorScheme-Accent`, i.e. blue. A tray icon
+  picked by name alone turns colourful on a thick panel and monochrome on a thin
+  one. The `-symbolic` suffix guarantees nothing — 454 of Breeze's 7628 symbolic
+  files use the accent colour.
 - A `ListView` inside a `ColumnLayout` needs `implicitHeight: contentHeight`,
   not just `Layout.preferredHeight`. Without it the layout treats the list as
   zero-height, reserves no space, and the sections below overlap — while the
   rows still paint, because `clip` is off.
+
+MEGAcmd's own behaviour — what it really does with exclusion rules, transfers and
+shared links, and what each poll costs — is in
+**[docs/MEGACMD-BEHAVIOUR.md](docs/MEGACMD-BEHAVIOUR.md)** (in English).
 
 ## License
 
