@@ -281,8 +281,6 @@ msgstr "например ~/MEGA"
 msgid "A writable mount also lets you copy files into the cloud. Note that MEGA has no streaming: opening a file downloads it in full, and the local cache grows as you browse."
 msgstr "Подключение с записью позволяет и складывать файлы в облако. Учтите: стриминга у MEGA нет — открытие файла скачивает его целиком, а локальный кэш растёт по мере просмотра."
 
-msgid "Changes apply immediately, not on OK."
-msgstr "Изменения применяются сразу, а не по кнопке «ОК»."
 
 msgid "Remove"
 msgstr "Удалить"
@@ -343,3 +341,256 @@ msgstr "Plasma не читает ~/.bashrc, поэтому её PATH короч�
 
 msgid "PATH: %1"
 msgstr "PATH: %1"
+
+msgid "%1 transfer in progress, %2%"
+msgid_plural "%1 transfers in progress, %2%"
+msgstr[0] "%1 передача, %2%"
+msgstr[1] "%1 передачи, %2%"
+msgstr[2] "%1 передач, %2%"
+
+msgid "Rules…"
+msgstr "Правила…"
+
+msgid "What is excluded from this synchronisation"
+msgstr "Что исключено из этой синхронизации"
+
+msgid "Back"
+msgstr "Назад"
+
+msgid "Rules: %1"
+msgstr "Правила: %1"
+
+msgid "Files that were excluded earlier are still in the cloud. Bringing them back into the synchronisation makes the local and cloud copies collide, and MEGAcmd cannot resolve such conflicts — delete the cloud copies first."
+msgstr "Ранее исключённые файлы остались в облаке. При возврате их в синхронизацию локальная и облачная копии столкнутся, а разрешать такие конфликты MEGAcmd не умеет — сначала удалите копии в облаке."
+
+msgid "Do not synchronise:"
+msgstr "Не синхронизировать:"
+
+msgid "Python virtual environments"
+msgstr "Виртуальные окружения Python"
+
+msgid "Node.js modules"
+msgstr "Модули Node.js"
+
+msgid "Caches and IDE indexes"
+msgstr "Кэши и индексы сред разработки"
+
+msgid "Build artifacts"
+msgstr "Артефакты сборки"
+
+msgid "Symbolic links"
+msgstr "Символьные ссылки"
+
+msgid "MEGA cannot sync them and reports each one as an issue"
+msgstr "MEGA их не синхронизирует и на каждую заводит проблему"
+
+msgid "Synchronise hidden files (.git, .env, .claude)"
+msgstr "Синхронизировать скрытые файлы (.git, .env, .claude)"
+
+msgid "MEGAcmd excludes everything starting with a dot by default. For a folder with code that drops repository history, keys and editor settings."
+msgstr "По умолчанию MEGAcmd исключает всё, что начинается с точки. Для каталога с кодом это выбрасывает историю репозиториев, ключи и настройки редакторов."
+
+msgid "Own rules:"
+msgstr "Свои правила:"
+
+
+msgid "e.g. -dn:node_modules or -p:benchmark"
+msgstr "например -dn:node_modules или -p:benchmark"
+
+msgid "Check"
+msgstr "Проверить"
+
+msgid "Add"
+msgstr "Добавить"
+
+msgid "The filter format is not recognised."
+msgstr "Формат фильтра не распознан."
+
+msgid "Regular expressions are not previewed."
+msgstr "Регулярные выражения предварительно не проверяются."
+
+msgid "Nothing matches this filter right now."
+msgstr "Сейчас под этот фильтр ничего не попадает."
+
+msgid "%1 match, for example: %2"
+msgid_plural "%1 matches, for example: %2"
+msgstr[0] "%1 попадание, например: %2"
+msgstr[1] "%1 попадания, например: %2"
+msgstr[2] "%1 попаданий, например: %2"
+
+msgid "Choose a cloud folder: the cloud root cannot be synchronised"
+msgstr "Выберите папку в облаке: корень синхронизировать нельзя"
+
+
+
+msgid "Exclude"
+msgstr "Исключать"
+
+msgid "Include"
+msgstr "Включать"
+
+msgid "directories"
+msgstr "каталоги"
+
+msgid "files"
+msgstr "файлы"
+
+msgid "symbolic links"
+msgstr "символьные ссылки"
+
+msgid "everything"
+msgstr "всё"
+
+msgid "named %1, anywhere in the folder"
+msgstr "с именем %1 в любом месте папки"
+
+msgid "named %1, in the folder root only"
+msgstr "с именем %1 только в корне папки"
+
+msgid "at the path %1"
+msgstr "по пути %1"
+
+msgid "anywhere in the folder"
+msgstr "в любом месте папки"
+
+msgctxt "@info rule description: action, object, place"
+msgid "%1 %2 %3"
+msgstr "%1 %2 %3"
+
+msgid "(regular expression)"
+msgstr "(регулярное выражение)"
+
+msgid "matching %1, anywhere in the folder"
+msgstr "по шаблону %1 в любом месте папки"
+
+msgid "matching %1, in the folder root only"
+msgstr "по шаблону %1 только в корне папки"
+
+msgid "paused"
+msgstr "на паузе"
+
+msgid "Temporary and system files"
+msgstr "Временные и системные файлы"
+
+msgid "MEGA's own defaults: editor backups (~*), unfinished downloads, *.tmp, Thumbs.db, desktop.ini"
+msgstr "Набор самой MEGA: резервные копии редакторов (~*), недокачанные файлы, *.tmp, Thumbs.db, desktop.ini"
+
+msgid "No rules yet."
+msgstr "Правил пока нет."
+
+msgid "Nothing here yet: the single rule of this folder is covered by the checkboxes above."
+msgid_plural "Nothing here yet: all %1 rules of this folder are covered by the checkboxes above."
+msgstr[0] "Здесь пусто: единственное правило этой папки уже показано галочками выше."
+msgstr[1] "Здесь пусто: все %1 правила этой папки уже показаны галочками выше."
+msgstr[2] "Здесь пусто: все %1 правил этой папки уже показаны галочками выше."
+
+msgid "Profile:"
+msgstr "Профиль:"
+
+msgid "Rules:"
+msgstr "Правила:"
+
+msgid "Edit…"
+msgstr "Изменить…"
+
+msgid "Custom set"
+msgstr "Свой набор"
+
+msgid "The rules below do not match any profile."
+msgstr "Набор ниже не совпадает ни с одним профилем."
+
+msgid "MEGA defaults"
+msgstr "По умолчанию (MEGA)"
+
+msgid "What MEGAcmd sets up by itself. Hidden files, including .git and .env, are not synchronised."
+msgstr "То, что MEGAcmd ставит сам. Скрытые файлы, включая .git и .env, не синхронизируются."
+
+msgid "Development"
+msgstr "Разработка"
+
+msgid "Without virtual environments, modules, caches and symlinks. Repository history and keys are synchronised."
+msgstr "Без окружений, модулей, кэшей и символьных ссылок. История репозиториев и ключи синхронизируются."
+
+msgid "Documents"
+msgstr "Документы"
+
+msgid "Without office lock and temporary files."
+msgstr "Без служебных и временных файлов офисных пакетов."
+
+msgid "Photos and video"
+msgstr "Фото и видео"
+
+msgid "Without thumbnails and viewer caches."
+msgstr "Без миниатюр и кэшей просмотрщиков."
+
+msgid "No rules"
+msgstr "Без правил"
+
+msgid "Synchronise everything, including build artifacts and caches."
+msgstr "Синхронизировать всё, включая артефакты сборки и кэши."
+
+msgid "Your own profile"
+msgstr "Ваш профиль"
+
+msgid "Save as profile…"
+msgstr "Сохранить как профиль…"
+
+msgid "Save profile"
+msgstr "Сохранение профиля"
+
+msgid "Profile name:"
+msgstr "Название профиля:"
+
+msgid "e.g. My repositories"
+msgstr "например, Мои репозитории"
+
+msgid "Rules for the new folder"
+msgstr "Правила новой папки"
+
+msgid "Nothing is changed until you press Apply or OK."
+msgstr "Ничего не меняется, пока не нажата кнопка «Применить» или «ОК»."
+
+msgid "One change is waiting for Apply."
+msgid_plural "%1 changes are waiting for Apply."
+msgstr[0] "Одно изменение ждёт применения."
+msgstr[1] "%1 изменения ждут применения."
+msgstr[2] "%1 изменений ждут применения."
+
+msgid "Discard changes"
+msgstr "Отменить изменения"
+
+msgid "Undo"
+msgstr "Отменить"
+
+msgid "will be added on Apply"
+msgstr "будет добавлена при применении"
+
+msgid "will be removed on Apply"
+msgstr "будет удалена при применении"
+
+msgid "rules will change on Apply"
+msgstr "правила изменятся при применении"
+
+msgid "Format: <class><target><type><strategy>:<pattern> — for example -dn:venv excludes directories named venv anywhere in the tree. The colon is required: the plain form is :pattern. Only the rules in the synchronisation root are shown; MEGAcmd does not see .megaignore files in subfolders."
+msgstr "Формат: <класс><цель><тип><стратегия>:<шаблон> — например -dn:venv исключает каталоги с именем venv в любом месте дерева. Двоеточие обязательно: простейший вид — :шаблон. Показаны только правила из корня синхронизации: вложенные .megaignore MEGAcmd не видит."
+
+msgid "Status"
+msgstr "Состояние"
+
+msgid "Shared"
+msgstr "Общий доступ"
+
+msgid "Nothing is shared"
+msgstr "Ничего не раздаётся"
+
+msgid "Public links you create appear here. Anyone who has such a link can download the file without a MEGA account."
+msgstr "Здесь появляются созданные вами публичные ссылки. По такой ссылке файл скачает любой, у кого она есть, — учётная запись MEGA не нужна."
+
+msgid "Open the link in the browser"
+msgstr "Открыть ссылку в браузере"
+
+msgid "Stop sharing"
+msgstr "Прекратить раздачу"
+
+msgid "Stop sharing this link"
+msgstr "Отозвать эту ссылку"

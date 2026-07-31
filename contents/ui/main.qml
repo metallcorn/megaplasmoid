@@ -4,6 +4,7 @@ import org.kde.plasma.plasmoid
 import org.kde.plasma.core as PlasmaCore
 import org.kde.plasma.components as PlasmaComponents
 import org.kde.kirigami as Kirigami
+import org.kde.quickcharts as Charts
 
 PlasmoidItem {
     id: root
@@ -97,16 +98,32 @@ PlasmoidItem {
             : PlasmaCore.Types.ActiveStatus;
     }
 
+    /*
+     * Значки трея берутся из категории status и только те, у которых в теме
+     * НЕТ вариантов крупнее 24 px.
+     *
+     * Причина: в Breeze один и тот же значок в разных размерах — разные файлы.
+     * places/22/folder-cloud.svg монохромный (ColorScheme-Text), а
+     * places/32/folder-cloud.svg уже перекрашен в ColorScheme-Accent, то есть
+     * синий. На панели выше 24 px подставляется второй, и виджет выбивается из
+     * ряда монохромных соседей. У cloudstatus, network-offline и
+     * media-playback-paused размеры только 16/22/24, поэтому на любой панели
+     * значок остаётся монохромным.
+     *
+     * Цвет допускается только семантический и из палитры темы:
+     * dialog-warning несёт ColorScheme-NeutralText, network-offline —
+     * ColorScheme-NegativeText. Так же окрашены значки сети и батареи.
+     */
     readonly property string stateIcon: {
         if (backend.paused)
-            return "media-playback-pause";
+            return "media-playback-paused";
         if (backend.cmdMissing || backend.serverDown || !backend.loggedIn)
-            return "cloud-offline";
+            return "network-offline";
         if (needsAttention)
             return "dialog-warning";
         if (active)
             return "cloud-upload";
-        return "folder-cloud";
+        return "cloudstatus";
     }
 
     readonly property string stateText: {
@@ -126,8 +143,15 @@ PlasmoidItem {
             return i18n("Cloud storage almost full");
         if (cacheBloated)
             return i18n("FUSE cache grew large");
-        if (busy)
-            return i18np("%1 transfer in progress", "%1 transfers in progress", backend.transfers.length);
+        if (busy) {
+            var n = backend.transfers.length;
+            // %1 — число передач, %2 — процент выполнения
+            if (backend.transferPercent >= 0)
+                return i18np("%1 transfer in progress, %2%",
+                             "%1 transfers in progress, %2%",
+                             n, Math.round(backend.transferPercent));
+            return i18np("%1 transfer in progress", "%1 transfers in progress", n);
+        }
         if (syncing)
             return i18n("Synchronising…");
         if (anySyncPaused)
@@ -212,6 +236,13 @@ PlasmoidItem {
 
         property bool wasExpanded: false
 
+        // Идут передачи и известен процент — рисуем кольцо.
+        readonly property bool showProgress: !backend.paused
+            && backend.transfers.length > 0 && backend.transferPercent >= 0
+        // Идут, но процента нет — крутим индикатор.
+        readonly property bool busyUnknown: !backend.paused
+            && backend.transfers.length > 0 && backend.transferPercent < 0
+
         Layout.minimumWidth: Kirigami.Units.iconSizes.small
         Layout.minimumHeight: Kirigami.Units.iconSizes.small
 
@@ -223,6 +254,35 @@ PlasmoidItem {
             anchors.fill: parent
             source: root.stateIcon
             active: compact.containsMouse
+
+            /*
+             * Кольцо прогресса поверх значка — приём из виджета уведомлений
+             * (applets/notifications/CompactRepresentation.qml): PieChart с
+             * фиксированным диапазоном 0..100 и цветом highlightColor.
+             *
+             * Когда процент ещё неизвестен (сводка не пришла или сервер не
+             * посчитал), показываем BusyIndicator, а не кольцо на нуле: пустое
+             * кольцо читается как «прогресса нет», хотя работа идёт.
+             */
+            Charts.PieChart {
+                id: progressRing
+                anchors.fill: parent
+                visible: compact.showProgress
+                range { from: 0; to: 100; automatic: false }
+                valueSources: Charts.SingleValueSource {
+                    value: Math.max(0, Math.min(100, backend.transferPercent))
+                }
+                colorSource: Charts.SingleValueSource {
+                    value: Kirigami.Theme.highlightColor
+                }
+                thickness: 5
+            }
+
+            PlasmaComponents.BusyIndicator {
+                anchors.fill: parent
+                visible: compact.busyUnknown
+                running: visible
+            }
         }
 
         /*
@@ -240,7 +300,10 @@ PlasmoidItem {
 
             readonly property int cycle: Kirigami.Units.veryLongDuration * 5
 
+            // Пока показан прогресс, не пульсируем: кольцо уже говорит о работе,
+            // а масштабирование ещё и таскало бы его вместе со значком.
             running: root.active && !backend.paused
+                     && !compact.showProgress && !compact.busyUnknown
             loops: Animation.Infinite
             alwaysRunToEnd: true
 

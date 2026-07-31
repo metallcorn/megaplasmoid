@@ -21,8 +21,14 @@ import org.kde.kirigami as Kirigami
  * внутри Kirigami.Heading, и снаружи это не переопределяется. Геометрия,
  * кегль и линия у копии те же — отличается только начертание.
  *
- * Своего header тут нет намеренно: трей рисует шапку сам, а header аплета
- * добавляет ВТОРОЙ строкой под своей.
+ * Свой header здесь всё же есть — под вкладки. Трей рисует свою шапку сам и
+ * подклеивает header аплета ВТОРОЙ строкой; для заголовка это было бы
+ * дублированием, а для панели вкладок это штатное место. Так сделано в самом
+ * Audio Volume (plasma-pa, applet/main.qml): PlasmoidHeading с rightPadding -1
+ * и bottomPadding -bottomInset, внутри PC3.TabBar с TabButton.
+ *
+ * Отличие от эталона: там HorizontalStackView ради переходов между вкладками,
+ * здесь StackLayout — переходов и свайпа не требуется.
  */
 PlasmaExtras.Representation {
     id: rep
@@ -39,11 +45,49 @@ PlasmaExtras.Representation {
     // Высота по содержимому (плюс footer), но не выше уровня попапа трея:
     // иначе вне трея под короткой сводкой висит пустота, а в трее виджет
     // выбивается из общего ряда.
-    Layout.preferredHeight: Math.min(content.implicitHeight + rep.contentMargin
+    Layout.preferredHeight: Math.min(rep.pageHeight + rep.contentMargin
+                                     + tabHeading.height
                                      + (footerHeading.visible ? footerHeading.height : 0),
                                      Kirigami.Units.gridUnit * 24)
 
+    // Высота считается по открытой вкладке: у «Общего доступа» своё содержимое,
+    // и от высоты «Состояния» она не зависит.
+    readonly property real pageHeight: tabBar.currentIndex === 0
+                                       ? content.implicitHeight
+                                       : sharedContent.implicitHeight
+
     collapseMarginsHint: true
+
+    header: PlasmaExtras.PlasmoidHeading {
+        id: tabHeading
+        // Значения из plasma-pa: кнопки выравниваются с рядом выше, а панель
+        // вкладок касается нижней границы шапки.
+        rightPadding: -1
+        bottomPadding: -bottomInset
+
+        contentItem: RowLayout {
+            spacing: Kirigami.Units.smallSpacing
+
+            PlasmaComponents.TabBar {
+                id: tabBar
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+
+                PlasmaComponents.TabButton {
+                    text: i18n("Status")
+                }
+
+                PlasmaComponents.TabButton {
+                    text: i18n("Shared")
+                    // Список ссылок обходит всё дерево аккаунта, поэтому в общий
+                    // цикл опроса он не входит: запрашиваем при первом открытии
+                    // вкладки.
+                    onClicked: if (!rep.backend.exportsLoaded)
+                                   rep.backend.refreshExports()
+                }
+            }
+        }
+    }
 
     function formatSize(bytes) {
         if (!bytes || bytes <= 0)
@@ -57,7 +101,10 @@ PlasmaExtras.Representation {
         return (i === 0 ? v.toFixed(0) : v.toFixed(1)) + " " + units[i];
     }
 
-    contentItem: PlasmaComponents.ScrollView {
+    contentItem: StackLayout {
+        currentIndex: tabBar.currentIndex
+
+    PlasmaComponents.ScrollView {
         id: scroll
 
         PlasmaComponents.ScrollBar.horizontal.policy: PlasmaComponents.ScrollBar.AlwaysOff
@@ -78,7 +125,9 @@ PlasmaExtras.Representation {
                 Layout.leftMargin: Kirigami.Units.gridUnit * 2
                 Layout.rightMargin: Kirigami.Units.gridUnit * 2
                 visible: rep.backend.cmdMissing || rep.backend.serverDown || !rep.backend.loggedIn
-                iconName: "cloud-offline"
+                // cloud-offline в Breeze нет вообще: значок молча подменялся
+                // запасным. Тот же network-offline, что и в значке трея.
+                iconName: "network-offline"
                 text: rep.backend.cmdMissing
                       ? i18n("MEGAcmd is not installed")
                       : (rep.backend.serverDown ? i18n("MEGAcmd server is not responding")
@@ -207,12 +256,24 @@ PlasmaExtras.Representation {
                     required property var modelData
                     required property int index
 
+                    /*
+                     * Колонка STATUS у остановленной синхронизации остаётся
+                     * прежней («Processing»), останов виден только в RUN_STATE.
+                     * Поэтому и спиннер, и значок, и подпись смотрят сначала на
+                     * RUN_STATE: иначе виджет крутит работу там, где её нет, и
+                     * противоречит собственной надписи о паузе.
+                     */
+                    readonly property bool stopped: modelData.runState !== "Running"
+
                     icon: modelData.error !== "NO" ? "dialog-error"
-                        : (modelData.status === "Synced" ? "dialog-ok" : "view-refresh")
+                        : (stopped ? "media-playback-pause"
+                        : (modelData.status === "Synced" ? "dialog-ok" : "view-refresh"))
                     title: modelData.remotePath
-                    subtitle: modelData.localPath + " · " + modelData.status
+                    subtitle: modelData.localPath + " · "
+                              + (stopped ? i18n("paused") : modelData.status)
                     subtitleCanWrap: false
-                    isBusy: modelData.status !== "Synced" && modelData.error === "NO"
+                    isBusy: !stopped && modelData.status !== "Synced"
+                            && modelData.error === "NO"
 
                     defaultActionButtonAction: T.Action {
                         icon.name: modelData.runState === "Running" ? "media-playback-pause"
@@ -319,6 +380,129 @@ PlasmaExtras.Representation {
                 }
             }
         }
+    }
+
+    // ---- вкладка «Общий доступ» ----
+    PlasmaComponents.ScrollView {
+        id: sharedScroll
+
+        PlasmaComponents.ScrollBar.horizontal.policy: PlasmaComponents.ScrollBar.AlwaysOff
+        contentWidth: availableWidth
+        implicitWidth: Kirigami.Units.gridUnit * 24
+
+        ColumnLayout {
+            id: sharedContent
+            width: sharedScroll.availableWidth
+            spacing: Kirigami.Units.smallSpacing
+
+            PlasmaExtras.PlaceholderMessage {
+                Layout.fillWidth: true
+                Layout.topMargin: Kirigami.Units.gridUnit * 2
+                Layout.leftMargin: Kirigami.Units.gridUnit * 2
+                Layout.rightMargin: Kirigami.Units.gridUnit * 2
+                visible: rep.backend.exportsLoaded && rep.backend.exports.length === 0
+                iconName: "emblem-shared-symbolic"
+                text: i18n("Nothing is shared")
+                explanation: i18n("Public links you create appear here. Anyone who has such a link can download the file without a MEGA account.")
+            }
+
+            PlasmaComponents.BusyIndicator {
+                Layout.alignment: Qt.AlignHCenter
+                Layout.topMargin: Kirigami.Units.gridUnit * 2
+                visible: !rep.backend.exportsLoaded
+                running: visible
+            }
+
+            ListView {
+                Layout.fillWidth: true
+                Layout.topMargin: rep.contentMargin
+                Layout.leftMargin: rep.contentMargin
+                Layout.rightMargin: rep.contentMargin
+                implicitHeight: contentHeight
+                Layout.preferredHeight: contentHeight
+                visible: count > 0
+                interactive: false
+                spacing: Kirigami.Units.smallSpacing
+                model: rep.backend.exports
+                currentIndex: -1
+                highlight: PlasmaExtras.Highlight {}
+
+                /*
+                 * Строка своя, а не ExpandableListItem: по требованию щелчок
+                 * должен открывать ссылку, а у раскрывающейся строки щелчок
+                 * занят раскрытием. Свои делегаты в аплетах Plasma штатны —
+                 * plasma-pa рисует список так же (ListItemBase.qml).
+                 */
+                delegate: PlasmaComponents.ItemDelegate {
+                    id: shareRow
+                    required property var modelData
+                    required property int index
+
+                    width: ListView.view.width
+                    onClicked: rep.backend.openUrl(modelData.link)
+
+                    // Отзыв отправлен, ответа ещё нет: строка гаснет и
+                    // перестаёт нажиматься, вместо кнопки крутится индикатор.
+                    readonly property bool revoking:
+                        rep.backend.unexporting.indexOf(modelData.path) !== -1
+
+                    enabled: !revoking
+                    opacity: revoking ? 0.6 : 1
+
+                    PlasmaComponents.ToolTip.text: i18n("Open the link in the browser")
+                    PlasmaComponents.ToolTip.visible: hovered
+                    PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
+
+                    contentItem: RowLayout {
+                        spacing: Kirigami.Units.smallSpacing
+
+                        Kirigami.Icon {
+                            source: shareRow.modelData.isFolder ? "folder" : "text-x-generic"
+                            implicitWidth: Kirigami.Units.iconSizes.small
+                            implicitHeight: Kirigami.Units.iconSizes.small
+                            Accessible.ignored: true
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 0
+
+                            PlasmaComponents.Label {
+                                Layout.fillWidth: true
+                                elide: Text.ElideMiddle
+                                text: shareRow.modelData.name
+                            }
+
+                            PlasmaExtras.DescriptiveLabel {
+                                Layout.fillWidth: true
+                                elide: Text.ElideRight
+                                text: shareRow.modelData.link
+                            }
+                        }
+
+                        PlasmaComponents.BusyIndicator {
+                            visible: shareRow.revoking
+                            running: visible
+                            implicitWidth: Kirigami.Units.iconSizes.smallMedium
+                            implicitHeight: Kirigami.Units.iconSizes.smallMedium
+                        }
+
+                        PlasmaComponents.ToolButton {
+                            visible: !shareRow.revoking
+                            icon.name: "edit-delete-remove"
+                            text: i18n("Stop sharing")
+                            display: PlasmaComponents.AbstractButton.IconOnly
+                            onClicked: rep.backend.unexport(shareRow.modelData.path)
+                            PlasmaComponents.ToolTip.text: i18n("Stop sharing this link")
+                            PlasmaComponents.ToolTip.visible: hovered
+                            PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     }
 
     /*

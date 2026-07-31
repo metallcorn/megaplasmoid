@@ -19,7 +19,15 @@ neither FUSE mounts nor the size of the cache they fill up. This widget does.
   both synchronisations and mounts: pick the local folder with a file dialog,
   browse the cloud tree to pick the remote one. No terminal needed for anything
   except the initial login.
-- **Transfers** — direction, progress and state of every active transfer.
+- **Transfers** — direction, progress and state of every active transfer, plus a
+  progress ring around the tray icon while data is moving.
+- **Shared links** — a *Shared* tab lists every public link of the account: file
+  name, the link itself, click to open it in the browser, one button to stop
+  sharing.
+- **Exclusion rules with profiles.** *Development*, *Documents*, *Photos and
+  video*, *MEGA defaults*, *No rules* — or your own, saved under a name. The
+  profile is applied before the synchronisation is created, so nothing unwanted
+  reaches the cloud in the meantime.
 - **FUSE cache** — current size plus a *Clear cache* button that stops the
   server, empties the cache and starts the server again. The button is disabled
   while transfers are queued, because writes through a mount are deferred and
@@ -91,9 +99,9 @@ that is the intended behaviour, not a broken install.
 *Right click on the widget → Configure MEGA…*
 
 The dialog has two pages. **General** holds the widget's own settings; **Folders**
-manages synchronisations and mounts. Note that the Folders page changes MEGAcmd
-server state, so its actions apply immediately rather than on *OK* — it has no
-`cfg_*` properties at all.
+manages synchronisations, mounts and exclusion rules. Nothing on the Folders page
+touches the server until you press *Apply* or *OK*: pending additions and
+removals are listed in place, and leaving the page asks what to do with them.
 
 | Setting (General) | Default |
 |---|---|
@@ -118,6 +126,14 @@ cheap on a laptop:
 - **A pause switch.** *Pause updates* in the widget's actions stops the timer
   completely: no processes, no wake-ups. Data then refreshes only via
   *Refresh now*.
+
+Measured on MEGAcmd 2.5.2 by the CPU time the server spends answering: one poll
+cycle costs 52 ms, which is **0.03 % of one core** at the default 180 s interval
+on battery, 0.17 % at 30 s on mains and 2.6 % while the popup is open. For scale,
+`mega-cmd-server` burns 0.33 % of a core doing nothing at all. Expensive calls
+that walk the whole account — the shared-links list — are never part of the
+cycle; they run when you open the tab. See
+[docs/MEGACMD-BEHAVIOUR.md](docs/MEGACMD-BEHAVIOUR.md) for the numbers.
 
 ## Notifications
 

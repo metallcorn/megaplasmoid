@@ -29,8 +29,11 @@ jobs:
           keys = set(re.findall(r'entry name="([^"]+)"', open('contents/config/main.xml').read()))
           form = open('contents/ui/configGeneral.qml').read()
           aliases = set(re.findall(r'property alias cfg_(\w+)', form))
-          # paused управляется кодом, а не формой настроек
+          # Ключи, которыми управляет код, а не форма настроек:
+          #   paused       — переключается действием в шапке трея;
+          #   ruleProfiles — правится страницей «Папки», там своя логика Apply.
           keys.discard('paused')
+          keys.discard('ruleProfiles')
           missing = sorted(keys - aliases)
           extra = sorted(aliases - keys)
           if missing:

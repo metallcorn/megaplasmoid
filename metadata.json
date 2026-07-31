@@ -9,7 +9,7 @@
         "Icon": "folder-cloud",
         "Category": "System Information",
         "License": "GPL-3.0-or-later",
-        "Version": "0.9.2",
+        "Version": "0.10.0",
         "Website": "https://github.com/metallcorn/megaplasmoid",
         "BugReportUrl": "https://github.com/metallcorn/megaplasmoid/issues",
         "Authors": [
@@ -18,5 +18,7 @@
             }
         ]
     },
-    "X-Plasma-API-Minimum-Version": "6.0"
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "X-Plasma-NotificationArea": "true",
+    "X-Plasma-NotificationAreaCategory": "SystemServices"
 }

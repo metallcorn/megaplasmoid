@@ -46,6 +46,12 @@ Item {
     property var syncs: []        // {id, localPath, remotePath, runState, status, error}
     property var mounts: []       // {name, localPath, remotePath, persistent, enabled}
     property var transfers: []    // {direction, tag, source, dest, progress, state}
+
+    // Сводный прогресс: -1 = неизвестен (тогда в трее крутится BusyIndicator,
+    // а не кольцо, застывшее на нуле).
+    property real transferPercent: -1
+    property int uploadCount: 0
+    property int downloadCount: 0
     property int issueCount: 0
 
     property real cacheBytes: -1  // -1 = ещё не считали
@@ -285,8 +291,17 @@ Item {
         return String(text).indexOf("Not logged in") !== -1;
     }
 
+    /*
+     * MEGAcmd печатает ошибку отдельной строкой с уровнем логирования:
+     *   [2026-07-31_14-17-02.351 cmd ERR  Failed to sync ... ]
+     *
+     * Искать подстроку "ERR" нельзя: в таблице команды sync есть колонка
+     * ERROR, и успешный вывод «Added sync… / Sync paused…» вместе с таблицей
+     * целиком попадал в полосу ошибок. Граница слова это отсекает: в «ERROR»
+     * после ERR идёт буква, и \b не срабатывает.
+     */
     function looksLikeError(text, code) {
-        return code !== 0 || String(text).indexOf("ERR") !== -1;
+        return code !== 0 || /\bERR\b/.test(String(text));
     }
 
     // ---- разбор результатов по тегу ----
@@ -385,6 +400,49 @@ Item {
             return;
         }
 
+        /*
+         * transfers --summary отдаёт таблицу фиксированной ширины и игнорирует
+         * --col-separator, как fuse-show. Значения содержат пробел между числом
+         * и единицей («0.00   B»), поэтому сначала склеиваем их, а потом режем
+         * по пробелам — так разбор не зависит от ширины колонок:
+         *
+         *   NUM DOWNLOADS  DOWNLOADED  TOTAL  %   NUM UPLOADS  UPLOADED  TOTAL  %
+         */
+        if (tag === "tsummary") {
+            if (code !== 0)
+                return;
+            var lines = String(out).split("\n").filter(function (l) {
+                return l.trim().length > 0;
+            });
+            if (lines.length < 2) {
+                transferPercent = -1;
+                return;
+            }
+            var norm = lines[1].replace(/([\d.]+)\s+([KMGTP]?i?B)/g, "$1$2");
+            var f = norm.trim().split(/\s+/);
+            if (f.length < 8) {
+                transferPercent = -1;
+                return;
+            }
+            var dPct = parseFloat(f[3]);
+            var uPct = parseFloat(f[7]);
+            var dNum = parseInt(f[0], 10) || 0;
+            var uNum = parseInt(f[4], 10) || 0;
+            downloadCount = dNum;
+            uploadCount = uNum;
+            // Показываем то направление, где реально идёт работа. Когда идут оба,
+            // берём меньший процент: он честнее отражает, сколько осталось.
+            if (dNum > 0 && uNum > 0)
+                transferPercent = Math.min(isNaN(dPct) ? 0 : dPct, isNaN(uPct) ? 0 : uPct);
+            else if (uNum > 0)
+                transferPercent = isNaN(uPct) ? -1 : uPct;
+            else if (dNum > 0)
+                transferPercent = isNaN(dPct) ? -1 : dPct;
+            else
+                transferPercent = -1;
+            return;
+        }
+
         if (tag === "issues") {
             if (code !== 0)
                 return;
@@ -397,6 +455,88 @@ Item {
                        : Math.max(0, String(out).split("\n").filter(function (l) {
                              return l.trim().length > 0;
                          }).length - 1);
+            return;
+        }
+
+        /*
+         * export печатает строки вида
+         *   /путь/файл.pdf (90.92 KB, shared as exported permanent file link: https://mega.nz/file/…)
+         *   /путь/папка (folder, shared as exported permanent folder link: https://mega.nz/folder/…)
+         *
+         * Имя файла может содержать что угодно, включая « (», поэтому границу
+         * ищем не первой скобкой, а последней перед меткой «, shared as
+         * exported» — она в выводе фиксированная.
+         */
+        if (tag === "exports") {
+            if (code !== 0)
+                return;
+            var list = [];
+            var rows = String(out).split("\n");
+            for (var i = 0; i < rows.length; ++i) {
+                var line = rows[i].replace(/\s+$/, "");
+                var marker = line.indexOf(", shared as exported");
+                if (marker === -1)
+                    continue;
+                var open = line.lastIndexOf(" (", marker);
+                if (open === -1)
+                    continue;
+                var linkMatch = line.match(/https:\/\/mega\.nz\/[^\s)]+/);
+                if (!linkMatch)
+                    continue;
+                var path = line.substring(0, open);
+                list.push({
+                    path: path,
+                    name: path.substring(path.lastIndexOf("/") + 1),
+                    meta: line.substring(open + 2, marker),
+                    isFolder: line.indexOf("folder link:") !== -1,
+                    link: linkMatch[0]
+                });
+            }
+            exports = list;
+            exportsLoaded = true;
+            /*
+             * Занятость снимаем только с тех путей, которые из списка ушли,
+             * то есть отзыв дошёл. Скопом снимать нельзя: при нескольких
+             * нажатиях подряд команды идут по очереди, и первый же перечитанный
+             * список погасил бы крутилки у строк, чьи отзывы ещё не выполнены.
+             * Случай неудачи закрыт отдельно — в обработчике операций.
+             */
+            unexporting = unexporting.filter(function (p) {
+                for (var k = 0; k < list.length; ++k)
+                    if (list[k].path === p)
+                        return true;
+                return false;
+            });
+            return;
+        }
+
+        if (tag === "rules") {
+            if (code !== 0) {
+                rules = [];
+                return;
+            }
+            rules = String(out).split("\n").map(function (l) {
+                return l.trim();
+            }).filter(function (l) {
+                return l.length > 0 && (l.charAt(0) === "-" || l.charAt(0) === "+");
+            });
+            return;
+        }
+
+        if (tag === "rulecheck") {
+            var hits = String(out).split("\n").filter(function (l) {
+                return l.trim().length > 0;
+            });
+            if (hits.length === 0) {
+                ruleCheckText = i18n("Nothing matches this filter right now.");
+            } else {
+                var sample = hits.slice(0, 3).map(function (p) {
+                    return p.replace(/^\.\//, "");
+                }).join(", ");
+                ruleCheckText = i18np("%1 match, for example: %2",
+                                      "%1 matches, for example: %2",
+                                      hits.length, sample);
+            }
             return;
         }
 
@@ -443,8 +583,17 @@ Item {
             var text = String(out).trim();
             var good = !looksLikeError(text, code);
             operationDone(good, good ? "" : text);
+            // Провалившийся отзыв ссылки оставил бы строку вечно занятой:
+            // из списка она не уйдёт, а значит фильтр по исчезновению её не
+            // освободит.
+            if (!good && unexporting.length > 0)
+                unexporting = [];
             refreshSyncs();
             refreshMounts();
+            // Список ссылок обновляем, только если его уже открывали: обход
+            // всего дерева ради вкладки, на которую никто не смотрел, не нужен.
+            if (exportsLoaded)
+                refreshExports();
             return;
         }
 
@@ -487,8 +636,21 @@ Item {
         sh("mega-exec fuse-show --disable-path-collapse", "mounts");
     }
 
+    /*
+     * --show-syncs обязателен: без него transfers показывает только передачи,
+     * запущенные вручную, а всё, что льёт синхронизация, скрывает. Замерено:
+     * при заливке 15 ГБ синхронизацией список передач оставался пустым, и
+     * виджет не показывал никакой активности.
+     */
     function refreshTransfers() {
-        sh("mega-exec transfers --col-separator='|' --path-display-size=4096", "transfers");
+        sh("mega-exec transfers --show-syncs --col-separator='|' --path-display-size=4096",
+           "transfers");
+    }
+
+    // Сводный прогресс для кольца в трее. Зовём только когда передачи есть:
+    // это лишний процесс на цикл, а в покое он всегда отдаёт нули.
+    function refreshTransferSummary() {
+        sh("mega-exec transfers --summary --show-syncs", "tsummary");
     }
 
     function refreshIssues()    { sh("mega-exec sync-issues --limit=0", "issues"); }
@@ -519,13 +681,53 @@ Item {
         return "op:" + opSeq;
     }
 
+    /*
+     * Исключение символьных ссылок ставится любой создаваемой синхронизации.
+     *
+     * MEGA их не синхронизирует в принципе: каждую найденную она помечает как
+     * sync issue и пропускает. Пользы от этих отметок нет никакой, а шум
+     * большой — в каталоге с питоновскими окружениями их выходят тысячи, и на
+     * их фоне не видно настоящих проблем. Правило показано галочкой на
+     * странице правил, так что снять его при желании можно.
+     */
+    readonly property string symlinkFilter: "sn:*"
+
+    function excludeSymlinksCmd(localPath) {
+        return "mega-exec sync-ignore --add-exclusion " + quote(symlinkFilter)
+             + " " + quote(expandTilde(localPath)) + " 2>&1";
+    }
+
     function addSync(localPath, remotePath) {
         sh("mega-exec sync " + quote(expandTilde(localPath)) + " "
-           + quote(remotePath) + " 2>&1", nextOpTag(), 60000);
+           + quote(remotePath) + " 2>&1 && " + excludeSymlinksCmd(localPath),
+           nextOpTag(), 60000);
     }
 
     function removeSync(id) {
         sh("mega-exec sync --delete " + quote(id) + " 2>&1", nextOpTag(), 60000);
+    }
+
+    /*
+     * Создать синхронизацию и сразу остановить её.
+     *
+     * Без этого правила исключения выставить негде: MEGAcmd начинает заливку в
+     * момент создания, и пока пользователь открывает страницу правил, venv и
+     * node_modules уже едут в облако. Останов идёт одной командой следом, в том
+     * же процессе шелла, чтобы промежуток был минимальным.
+     *
+     * Успевшее уехать за эти доли секунды останется в облаке замороженным —
+     * добавление правила уже загруженное не удаляет (замерено).
+     */
+    function addSyncPaused(localPath, remotePath) {
+        var p = quote(expandTilde(localPath));
+        sh("mega-exec sync " + p + " " + quote(remotePath) + " 2>&1 && "
+           + "mega-exec sync -p " + p + " 2>&1 && "
+           + excludeSymlinksCmd(localPath), nextOpTag(), 60000);
+    }
+
+    function setSyncEnabled(idOrPath, on) {
+        sh("mega-exec sync " + (on ? "-e " : "-p ") + quote(idOrPath) + " 2>&1",
+           nextOpTag(), 60000);
     }
 
     // По умолчанию маунт writable и persistent (переживает перезапуск) — так же,
@@ -542,6 +744,129 @@ Item {
 
     function removeMount(nameOrPath) {
         sh("mega-exec fuse-remove " + quote(nameOrPath) + " 2>&1", nextOpTag(), 60000);
+    }
+
+    // ---- правила исключения (.megaignore) ----
+    //
+    // Всё идёт через sync-ignore, напрямую в файл не пишем: он сохранён в UTF-8
+    // с BOM, и своя запись рискует его сломать. Побочная выгода — MEGAcmd сам
+    // проверяет синтаксис и на мусорном фильтре возвращает код 51, так что свой
+    // разбор грамматики не нужен.
+    //
+    // Цель (target) — либо локальный путь синхронизации, либо литерал DEFAULT
+    // (профиль для будущих синхронизаций; существующие он не меняет — замерено).
+
+    property var rules: []
+    property string rulesTarget: ""
+    property string ruleCheckText: ""
+
+    function loadRules(target) {
+        rulesTarget = target;
+        sh("mega-exec sync-ignore --show " + quote(target) + " 2>&1", "rules", 30000);
+    }
+
+    // Фильтр приходит в каноническом виде со знаком класса: -dn:venv, +dn:.git.
+    // У --add-exclusion знак опускается, поэтому режем его сами.
+    function addRule(target, filter) {
+        var f = String(filter).trim();
+        var cmd = f.charAt(0) === "+"
+                ? "mega-exec sync-ignore --add " + quote(f)
+                : "mega-exec sync-ignore --add-exclusion " + quote(f.replace(/^-/, ""));
+        sh(cmd + " " + quote(target) + " 2>&1", nextOpTag(), 30000);
+    }
+
+    function removeRule(target, filter) {
+        var f = String(filter).trim();
+        var cmd = f.charAt(0) === "+"
+                ? "mega-exec sync-ignore --remove " + quote(f)
+                : "mega-exec sync-ignore --remove-exclusion " + quote(f.replace(/^-/, ""));
+        sh(cmd + " " + quote(target) + " 2>&1", nextOpTag(), 30000);
+    }
+
+    /*
+     * «Проверить»: показать, что правило заденет, до того как оно применено.
+     * Считаем локально через find — облако тут не при чём, а перечислить
+     * попадания важнее всего именно перед первым применением.
+     *
+     * Разбираем подмножество грамматики <CLASS><TARGET><TYPE><STRATEGY>:<PATTERN>:
+     * цель d/f/s/a и тип n (по всему дереву), N (только корень), p (путь).
+     * Регулярные выражения (стратегия R) не проверяем — о чём и сообщаем.
+     */
+    /*
+     * Заменить весь набор правил цели на заданный.
+     *
+     * Скрипт сначала снимает то, что есть сейчас (список берём у самого
+     * MEGAcmd, а не из своего кэша: между показом и применением он мог
+     * измениться), потом ставит новое. Класс правила определяется по первому
+     * символу: у --remove-exclusion знак опускается, у include-правил нужен
+     * --remove со знаком.
+     */
+    function profileScript(target, filters) {
+        var t = quote(target);
+        var s = 'T=' + t + '; '
+              + 'mega-exec sync-ignore --show "$T" 2>/dev/null | while read -r f; do '
+              + '  [ -z "$f" ] && continue; '
+              + '  case "$f" in '
+              + '    +*) mega-exec sync-ignore --remove "$f" "$T" >/dev/null 2>&1 ;; '
+              + '    -*) mega-exec sync-ignore --remove-exclusion "${f#-}" "$T" >/dev/null 2>&1 ;; '
+              + '  esac; '
+              + 'done; ';
+        for (var i = 0; i < filters.length; ++i) {
+            var f = String(filters[i]);
+            s += f.charAt(0) === "+"
+               ? 'mega-exec sync-ignore --add ' + quote(f) + ' "$T" 2>&1 || exit 1; '
+               : 'mega-exec sync-ignore --add-exclusion ' + quote(f.replace(/^-/, ""))
+                 + ' "$T" 2>&1 || exit 1; ';
+        }
+        return s + 'echo profile-applied';
+    }
+
+    function applyProfile(target, filters) {
+        sh(profileScript(target, filters), nextOpTag(), 120000);
+    }
+
+    /*
+     * Создать синхронизацию сразу с нужными правилами.
+     *
+     * Профиль пишется в DEFAULT, и только потом создаётся папка: MEGAcmd
+     * копирует DEFAULT в новую синхронизацию в момент создания, поэтому она
+     * рождается уже с правилами. Это единственный способ обойтись без окна,
+     * за которое успевает уехать мусор — у команды sync нет флага «создать
+     * выключенной» (проверено по справке).
+     */
+    function addSyncWithProfile(localPath, remotePath, filters) {
+        sh(profileScript("DEFAULT", filters) + " > /dev/null && "
+           + "mega-exec sync " + quote(expandTilde(localPath)) + " "
+           + quote(remotePath) + " 2>&1",
+           nextOpTag(), 120000);
+    }
+
+    function checkRule(localRoot, filter) {
+        var m = String(filter).match(/^([-+])([dfsa]?)([NnpP]?)([GgRr]?):(.*)$/);
+        if (!m) {
+            ruleCheckText = i18n("The filter format is not recognised.");
+            return;
+        }
+        var target = m[2] || "a";
+        var type = m[3] || "n";
+        var strategy = m[4] || "G";
+        var pattern = m[5];
+
+        if (strategy === "R" || strategy === "r") {
+            ruleCheckText = i18n("Regular expressions are not previewed.");
+            return;
+        }
+
+        var typeArg = target === "d" ? " -type d"
+                    : (target === "f" ? " -type f"
+                    : (target === "s" ? " -type l" : ""));
+        var match = type === "p" ? " -path " + quote("./" + pattern)
+                                 : " -name " + quote(pattern);
+        var depth = type === "N" ? " -maxdepth 1" : "";
+
+        sh("cd " + quote(expandTilde(localRoot)) + " 2>/dev/null || exit 1; "
+           + "find ." + depth + typeArg + match + " 2>/dev/null | head -200",
+           "rulecheck", 60000);
     }
 
     function setMountEnabled(name, on) {
@@ -570,6 +895,40 @@ Item {
         if (!path)
             return;
         sh("xdg-open " + quote(expandTilde(path)), "open:" + path, 30000);
+    }
+
+    function openUrl(url) {
+        if (!url)
+            return;
+        sh("xdg-open " + quote(url), "open:" + url, 30000);
+    }
+
+    // ---- публичные ссылки ----
+    //
+    // Обход всего дерева не дешёвый (у большого аккаунта это десятки тысяч
+    // узлов), поэтому в общий цикл опроса он не входит: список запрашивается
+    // при открытии вкладки и после каждой отмены раздачи.
+
+    property var exports: []          // {path, name, link, isFolder, meta}
+    property bool exportsLoaded: false
+
+    // Пути, для которых отзыв ссылки уже отправлен, но список ещё не
+    // перечитан. Нужны интерфейсу: между нажатием и исчезновением строки
+    // проходит около секунды (сам отзыв плюс обход дерева), и без признака
+    // занятости это выглядит как «кнопка не сработала».
+    property var unexporting: []
+
+    function refreshExports() {
+        sh("mega-exec export /", "exports", 180000);
+    }
+
+    function unexport(path) {
+        if (unexporting.indexOf(path) !== -1)
+            return;
+        var list = unexporting.slice();
+        list.push(path);
+        unexporting = list;
+        sh("mega-exec export -d " + quote(path) + " 2>&1", nextOpTag(), 60000);
     }
 
     /*
@@ -657,6 +1016,12 @@ Item {
         refreshSyncs();
         refreshTransfers();
         refreshIssues();
+        // Сводку берём только при активности: в покое она всегда нулевая, и
+        // гонять ради этого лишний процесс каждый цикл незачем.
+        if (transfers.length > 0)
+            refreshTransferSummary();
+        else
+            transferPercent = -1;
     }
 
     function refreshHeavy() {

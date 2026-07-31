@@ -23,6 +23,16 @@
       <default></default>
     </entry>
 
+    <!--
+      Свои профили правил исключения, JSON: [{"name": "...", "filters": [...]}].
+      Правится со страницы «Папки», а не формой настроек, поэтому алиаса cfg_ в
+      configGeneral.qml у него нет.
+    -->
+    <entry name="ruleProfiles" type="String">
+      <label>User-defined exclusion rule profiles, JSON</label>
+      <default>[]</default>
+    </entry>
+
     <entry name="lowSpacePercent" type="Int">
       <label>Low space warning threshold, %</label>
       <default>90</default>

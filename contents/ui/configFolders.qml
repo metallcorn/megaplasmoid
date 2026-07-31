@@ -1,13 +1,22 @@
 /*
- * Страница настроек «Папки»: добавление и удаление синхронизаций и FUSE-маунтов.
+ * Страница настроек «Папки»: синхронизации, FUSE-маунты и правила исключения.
  *
- * Особенность: страница настроек живёт в отдельном контексте и не видит Backend
- * из виджета, поэтому здесь свой экземпляр. Он создаётся с paused: true — опрос
- * по таймеру не нужен, данные обновляются после каждой операции и при открытии.
+ * Применение — по Apply/OK, как во всех диалогах KDE. Контракт диалога описан
+ * в его исходнике (shells/org.kde.plasma.desktop/contents/configuration/
+ * AppletConfiguration.qml):
  *
- * Правки здесь не относятся к настройкам виджета: они меняют состояние сервера
- * MEGAcmd и применяются немедленно, а не по нажатию «Применить». Поэтому у
- * страницы нет ни одного свойства cfg_*.
+ *   settingValueChanged():  applyButton.enabled = ... || currentItem.unsavedChanges
+ *   saveConfig():           if (currentItem.saveConfig) currentItem.saveConfig()
+ *   closing():              при непустых изменениях спрашивает Apply/Discard/Cancel
+ *
+ * Поэтому страница объявляет property bool unsavedChanges и function
+ * saveConfig(), а до нажатия копит изменения в pending и ничего не трогает на
+ * сервере. Отказ от изменений диалог берёт на себя: страница пересоздаётся, и
+ * очередь исчезает вместе с ней.
+ *
+ * Особенность: страница живёт в отдельном контексте и не видит Backend из
+ * виджета, поэтому здесь свой экземпляр с paused: true — опрос по таймеру не
+ * нужен, данные обновляются после операций и при открытии.
  */
 import QtQuick
 import QtQuick.Layouts
@@ -27,28 +36,144 @@ Item {
         extraPath: plasmoid ? plasmoid.configuration.megacmdPath : ""
     }
 
-    // Что настраиваем: синхронизацию или маунт. Формы почти совпадают,
-    // отличаются составом полей.
+    RuleProfiles {
+        id: profiles
+        customJson: plasmoid ? plasmoid.configuration.ruleProfiles : "[]"
+    }
+
+    // ---- контракт диалога настроек ----
+
+    property var pending: []
+    property bool unsavedChanges: pending.length > 0
+
+    function queue(op) {
+        var list = pending.slice();
+        list.push(op);
+        pending = list;
+    }
+
+    function dropPending() {
+        pending = [];
+    }
+
+    /*
+     * Порядок выполнения — тот же, в каком пользователь набирал изменения.
+     * Очередь Backend последовательная, поэтому команды не перемешаются между
+     * собой и с опросом.
+     */
+    function saveConfig() {
+        var ops = pending;
+        pending = [];
+
+        var profilesJson = plasmoid ? plasmoid.configuration.ruleProfiles : "[]";
+
+        for (var i = 0; i < ops.length; ++i) {
+            var op = ops[i];
+            switch (op.kind) {
+            case "addSync":
+                backend.addSyncWithProfile(op.local, op.remote, op.filters);
+                break;
+            case "removeSync":
+                backend.removeSync(op.id);
+                break;
+            case "rules":
+                backend.applyProfile(op.target, op.filters);
+                break;
+            case "addMount":
+                backend.addMount(op.local, op.remote, op.name, op.readOnly);
+                break;
+            case "removeMount":
+                backend.removeMount(op.name);
+                break;
+            case "saveProfile":
+                profiles.customJson = profilesJson;
+                profilesJson = profiles.withSaved(op.name, op.filters);
+                break;
+            }
+        }
+
+        if (plasmoid && profilesJson !== plasmoid.configuration.ruleProfiles) {
+            plasmoid.configuration.ruleProfiles = profilesJson;
+            plasmoid.configuration.writeConfig();
+        }
+    }
+
+    // ---- состояние страницы ----
+
     readonly property bool syncMode: modeGroup.currentIndex === 0
 
-    Component.onCompleted: backend.refreshState()
+    // Открытый редактор правил. Цель "" означает набор для ещё не созданной
+    // синхронизации: применять его некуда, он поедет вместе с созданием.
+    property bool rulesOpen: false
+    property string rulesTarget: ""
+    property string rulesLocalRoot: ""
+    property string rulesTitle: ""
+    property var rulesFilters: []
+    property bool rulesCloudHasFiles: false
+    property int rulesPendingIndex: -1     // правим набор запланированной папки
 
+    // Набор для новой синхронизации: по умолчанию профиль разработки, потому
+    // что виджет ставят ради каталогов с работой, а не ради «Загрузок».
+    property var draftFilters: profiles.byKey("developer")
+                               ? profiles.byKey("developer").filters.slice() : []
+
+    function openRulesForSync(sync) {
+        rulesTarget = sync.localPath;
+        rulesLocalRoot = sync.localPath;
+        rulesTitle = i18n("Rules: %1", sync.localPath);
+        rulesCloudHasFiles = true;
+        rulesPendingIndex = -1;
+        rulesFilters = [];
+        backend.ruleCheckText = "";
+        backend.loadRules(sync.localPath);
+        rulesOpen = true;
+    }
+
+    function openRulesForDraft() {
+        rulesTarget = "";
+        rulesLocalRoot = localPath.text;
+        rulesTitle = i18n("Rules for the new folder");
+        rulesCloudHasFiles = false;
+        rulesPendingIndex = -1;
+        rulesFilters = draftFilters.slice();
+        backend.ruleCheckText = "";
+        rulesOpen = true;
+    }
+
+    function closeRules(filters) {
+        if (rulesTarget.length > 0) {
+            // Ставим в очередь, только если набор действительно изменился.
+            if (JSON.stringify(filters.slice().sort())
+                !== JSON.stringify(backend.rules.slice().sort()))
+                queue({ kind: "rules", target: rulesTarget, filters: filters });
+        } else {
+            draftFilters = filters;
+        }
+        rulesOpen = false;
+    }
+
+    // Правила синхронизации подгружаются асинхронно: как пришли — кладём в
+    // рабочую копию редактора.
     Connections {
         target: backend
+        function onRulesChanged() {
+            if (page.rulesOpen && page.rulesTarget.length > 0
+                && page.rulesFilters.length === 0)
+                page.rulesFilters = backend.rules.slice();
+        }
         function onOperationDone(ok, message) {
-            // Операция могла провалиться из-за отвалившейся сессии, поэтому
-            // перепроверяем и факт входа, а не только списки.
             backend.refreshQuota();
             if (ok) {
                 error.visible = false;
-                localPath.text = "";
-                mountName.text = "";
             } else {
-                error.text = message.length > 0 ? message : i18n("The operation failed");
+                error.text = message.length > 0 ? message
+                                                : i18n("The operation failed");
                 error.visible = true;
             }
         }
     }
+
+    Component.onCompleted: backend.refreshState()
 
     Dialogs.FolderDialog {
         id: folderDialog
@@ -56,10 +181,31 @@ Item {
         onAccepted: localPath.text = selectedFolder.toString().replace(/^file:\/\//, "")
     }
 
+    // ---- редактор правил ----
+
+    IgnoreRules {
+        anchors.fill: parent
+        anchors.margins: Kirigami.Units.largeSpacing
+        visible: page.rulesOpen
+        backend: backend
+        profiles: profiles
+        filters: page.rulesFilters
+        localRoot: page.rulesLocalRoot
+        title: page.rulesTitle
+        cloudHasFiles: page.rulesCloudHasFiles
+        onCloseRequested: page.closeRules(filters)
+        onSaveProfileRequested: function (name, f) {
+            page.queue({ kind: "saveProfile", name: name, filters: f });
+        }
+    }
+
+    // ---- основной вид ----
+
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: Kirigami.Units.largeSpacing
         spacing: Kirigami.Units.largeSpacing
+        visible: !page.rulesOpen
 
         QQC2.TabBar {
             id: modeGroup
@@ -78,11 +224,24 @@ Item {
 
         Kirigami.InlineMessage {
             Layout.fillWidth: true
+            visible: page.pending.length > 0
+            type: Kirigami.MessageType.Information
+            text: i18np("One change is waiting for Apply.",
+                        "%1 changes are waiting for Apply.", page.pending.length)
+
+            actions: [
+                Kirigami.Action {
+                    icon.name: "edit-undo"
+                    text: i18n("Discard changes")
+                    onTriggered: page.dropPending()
+                }
+            ]
+        }
+
+        Kirigami.InlineMessage {
+            Layout.fillWidth: true
             visible: backend.cmdMissing || backend.serverDown || !backend.loggedIn
             type: Kirigami.MessageType.Warning
-            // Диагностику из шелла показываем прямо здесь: иначе на чужой
-            // машине не понять, почему mega-exec не найден или чем недоволен
-            // сервер.
             text: {
                 var head = backend.cmdMissing
                          ? i18n("mega-exec was not found in PATH.")
@@ -118,8 +277,33 @@ Item {
 
             ListView {
                 id: existing
-                model: page.syncMode ? backend.syncs : backend.mounts
                 currentIndex: -1
+
+                // Список показывает и то, что есть, и то, что появится после
+                // Apply: иначе непонятно, куда делась только что добавленная
+                // папка.
+                model: {
+                    var rows = [];
+                    var list = page.syncMode ? backend.syncs : backend.mounts;
+                    for (var i = 0; i < list.length; ++i)
+                        rows.push({ entry: list[i], planned: "" });
+                    for (var j = 0; j < page.pending.length; ++j) {
+                        var op = page.pending[j];
+                        if (page.syncMode && op.kind === "addSync")
+                            rows.push({ entry: { localPath: op.local,
+                                                 remotePath: op.remote,
+                                                 runState: "", status: "",
+                                                 error: "NO", id: "" },
+                                        planned: "add", opIndex: j });
+                        if (!page.syncMode && op.kind === "addMount")
+                            rows.push({ entry: { localPath: op.local,
+                                                 remotePath: op.remote,
+                                                 name: op.name,
+                                                 enabled: false, persistent: true },
+                                        planned: "add", opIndex: j });
+                    }
+                    return rows;
+                }
 
                 delegate: QQC2.ItemDelegate {
                     required property var modelData
@@ -129,11 +313,35 @@ Item {
                     highlighted: existing.currentIndex === index
                     onClicked: existing.currentIndex = index
 
+                    readonly property var entry: modelData.entry
+                    readonly property bool willBeAdded: modelData.planned === "add"
+                    readonly property bool willBeRemoved: {
+                        for (var i = 0; i < page.pending.length; ++i) {
+                            var op = page.pending[i];
+                            if (page.syncMode && op.kind === "removeSync"
+                                && op.id === entry.id)
+                                return true;
+                            if (!page.syncMode && op.kind === "removeMount"
+                                && op.name === entry.name)
+                                return true;
+                        }
+                        return false;
+                    }
+                    readonly property bool rulesChangePlanned: {
+                        for (var i = 0; i < page.pending.length; ++i)
+                            if (page.pending[i].kind === "rules"
+                                && page.pending[i].target === entry.localPath)
+                                return true;
+                        return false;
+                    }
+
                     contentItem: RowLayout {
                         spacing: Kirigami.Units.smallSpacing
 
                         Kirigami.Icon {
-                            source: page.syncMode ? "folder-sync" : "folder-remote"
+                            source: willBeAdded ? "list-add"
+                                  : (willBeRemoved ? "list-remove"
+                                  : (page.syncMode ? "folder-sync" : "folder-remote"))
                             implicitWidth: Kirigami.Units.iconSizes.small
                             implicitHeight: Kirigami.Units.iconSizes.small
                         }
@@ -145,9 +353,8 @@ Item {
                             QQC2.Label {
                                 Layout.fillWidth: true
                                 elide: Text.ElideMiddle
-                                text: page.syncMode
-                                      ? modelData.localPath + "  →  " + modelData.remotePath
-                                      : modelData.localPath + "  →  " + modelData.remotePath
+                                font.strikeout: willBeRemoved
+                                text: entry.localPath + "  →  " + entry.remotePath
                             }
 
                             QQC2.Label {
@@ -155,19 +362,62 @@ Item {
                                 elide: Text.ElideRight
                                 font: Kirigami.Theme.smallFont
                                 opacity: 0.7
-                                text: page.syncMode
-                                      ? modelData.runState + " · " + modelData.status
-                                      : (modelData.enabled ? i18n("mounted") : i18n("not mounted"))
-                                            + (modelData.persistent ? "" : " · " + i18n("transient"))
+                                text: {
+                                    if (willBeAdded)
+                                        return i18n("will be added on Apply");
+                                    if (willBeRemoved)
+                                        return i18n("will be removed on Apply");
+                                    if (page.syncMode) {
+                                        var s = entry.runState !== "Running"
+                                              ? i18n("paused") : entry.status;
+                                        return rulesChangePlanned
+                                             ? s + " · " + i18n("rules will change on Apply")
+                                             : s;
+                                    }
+                                    return (entry.enabled ? i18n("mounted")
+                                                          : i18n("not mounted"))
+                                         + (entry.persistent ? ""
+                                                             : " · " + i18n("transient"));
+                                }
                             }
                         }
 
                         QQC2.ToolButton {
-                            icon.name: "edit-delete"
-                            text: i18n("Remove")
+                            visible: page.syncMode && !willBeAdded && !willBeRemoved
+                            icon.name: "view-filter"
+                            text: i18n("Rules…")
                             display: QQC2.AbstractButton.IconOnly
-                            onClicked: page.syncMode ? backend.removeSync(modelData.id)
-                                                     : backend.removeMount(modelData.name)
+                            onClicked: page.openRulesForSync(entry)
+                            QQC2.ToolTip.text: i18n("What is excluded from this synchronisation")
+                            QQC2.ToolTip.visible: hovered
+                            QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+                        }
+
+                        QQC2.ToolButton {
+                            icon.name: willBeAdded || willBeRemoved ? "edit-undo"
+                                                                    : "edit-delete"
+                            text: willBeAdded || willBeRemoved ? i18n("Undo")
+                                                               : i18n("Remove")
+                            display: QQC2.AbstractButton.IconOnly
+                            onClicked: {
+                                if (willBeAdded || willBeRemoved) {
+                                    var list = page.pending.filter(function (op) {
+                                        if (willBeAdded)
+                                            return !((op.kind === "addSync"
+                                                      || op.kind === "addMount")
+                                                     && op.local === entry.localPath);
+                                        return !((op.kind === "removeSync"
+                                                  && op.id === entry.id)
+                                                 || (op.kind === "removeMount"
+                                                     && op.name === entry.name));
+                                    });
+                                    page.pending = list;
+                                } else if (page.syncMode) {
+                                    page.queue({ kind: "removeSync", id: entry.id });
+                                } else {
+                                    page.queue({ kind: "removeMount", name: entry.name });
+                                }
+                            }
                             QQC2.ToolTip.text: page.syncMode
                                                ? i18n("Stop synchronising (files are kept)")
                                                : i18n("Remove this mount")
@@ -216,7 +466,7 @@ Item {
                 onClicked: folderDialog.open()
             }
 
-            QQC2.Label { text: i18n("Name:") }
+            QQC2.Label { text: i18n("Name:"); visible: !page.syncMode }
 
             QQC2.TextField {
                 id: mountName
@@ -226,11 +476,37 @@ Item {
                 placeholderText: i18n("optional, defaults to the folder name")
             }
 
-            // Заполнитель, чтобы сетка не разъезжалась в режиме синхронизаций
-            Item {
-                Layout.columnSpan: 2
+            // Профиль правил выбирается до создания: MEGAcmd копирует набор в
+            // новую синхронизацию в момент создания, поэтому она сразу родится
+            // правильной и мусор не успеет уехать.
+            QQC2.Label { text: i18n("Rules:"); visible: page.syncMode }
+
+            QQC2.ComboBox {
+                id: profileBox
+                Layout.fillWidth: true
                 visible: page.syncMode
-                implicitHeight: 0
+                textRole: "name"
+                model: profiles.all
+                currentIndex: {
+                    var d = profiles.detect(page.draftFilters);
+                    if (!d)
+                        return -1;
+                    for (var i = 0; i < profiles.all.length; ++i)
+                        if (profiles.all[i].key === d.key)
+                            return i;
+                    return -1;
+                }
+                displayText: currentIndex >= 0 ? currentText : i18n("Custom set")
+                onActivated: function (index) {
+                    page.draftFilters = profiles.all[index].filters.slice();
+                }
+            }
+
+            QQC2.Button {
+                visible: page.syncMode
+                icon.name: "view-filter"
+                text: i18n("Edit…")
+                onClicked: page.openRulesForDraft()
             }
 
             QQC2.CheckBox {
@@ -268,21 +544,35 @@ Item {
                 wrapMode: Text.WordWrap
                 font: Kirigami.Theme.smallFont
                 opacity: 0.7
-                text: i18n("Changes apply immediately, not on OK.")
+                text: i18n("Nothing is changed until you press Apply or OK.")
             }
 
             QQC2.Button {
                 icon.name: "list-add"
                 text: page.syncMode ? i18n("Add synchronisation") : i18n("Add mount")
+                // Корень облака MEGAcmd как цель синхронизации отвергает, если
+                // ниже уже есть хоть одна («Active sync below path»).
                 enabled: backend.loggedIn && localPath.text.length > 0
+                         && (!page.syncMode || remotePicker.path !== "/")
                 onClicked: {
-                    var local = localPath.text;
                     if (page.syncMode)
-                        backend.addSync(local, remotePicker.path);
+                        page.queue({ kind: "addSync", local: localPath.text,
+                                     remote: remotePicker.path,
+                                     filters: page.draftFilters.slice() });
                     else
-                        backend.addMount(local, remotePicker.path,
-                                         mountName.text, readOnly.checked);
+                        page.queue({ kind: "addMount", local: localPath.text,
+                                     remote: remotePicker.path,
+                                     name: mountName.text,
+                                     readOnly: readOnly.checked });
+                    localPath.text = "";
+                    mountName.text = "";
                 }
+                QQC2.ToolTip.text: page.syncMode && remotePicker.path === "/"
+                                   ? i18n("Choose a cloud folder: the cloud root cannot be synchronised")
+                                   : ""
+                QQC2.ToolTip.visible: hovered && page.syncMode
+                                      && remotePicker.path === "/"
+                QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
             }
         }
     }
