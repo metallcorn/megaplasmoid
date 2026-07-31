@@ -144,7 +144,11 @@ def qml_strings():
                 args = re.findall(r'"((?:[^"\\]|\\.)*)"', buf)
                 if not args:
                     continue
-                if kind == "c" and len(args) > 1:
+                # У i18nc и i18ncp первый аргумент — контекст, строка идёт
+                # вторым. Без этой развилки i18ncp регистрировал бы как msgid
+                # свой контекст, а настоящая строка не искалась бы вовсе, и
+                # проверка полноты каталога молчала бы об этом.
+                if kind in ("c", "cp") and len(args) > 1:
                     found.add((unescape(args[0]), unescape(args[1])))
                 else:
                     found.add((None, unescape(args[0])))
